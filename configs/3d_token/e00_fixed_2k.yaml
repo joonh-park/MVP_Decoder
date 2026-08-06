@@ -1,0 +1,12 @@
+extends: base.yaml
+
+model:
+  decoder:
+    split:
+      enabled: false
+    refinement:
+      num_layers: 0
+
+training:
+  checkpoint_dir: ./experiments/checkpoints/3d_token_e00
+  wandb_exp_name: 3D_Token_MVP_E00_Fixed_2K

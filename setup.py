@@ -34,6 +34,16 @@ def process_overrides(overrides):
     
     return processed
 
+
+def load_config_with_bases(config_path):
+    config_path = Path(config_path)
+    config = OmegaConf.load(config_path)
+    if "extends" not in config:
+        return config
+    base_path = config_path.parent / config.extends
+    del config["extends"]
+    return OmegaConf.merge(load_config_with_bases(base_path), config)
+
 def init_config():
     parser = argparse.ArgumentParser()
 
@@ -41,8 +51,8 @@ def init_config():
     parser.add_argument("overrides", nargs="*")  # Capture all "key=value" args
     args = parser.parse_args()
 
-    # Load base config
-    config = OmegaConf.load(args.config)
+    # Load config and an optional relative base config.
+    config = load_config_with_bases(args.config)
 
     # Parse CLI overrides using OmegaConf's native CLI parser
     processed_overrides = process_overrides(args.overrides)
@@ -248,5 +258,3 @@ def init_wandb_and_backup(config):
         trgt_dir,  
         include_fn=lambda path: path.endswith(extension_to_backup),
     )
-
-

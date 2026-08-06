@@ -83,7 +83,7 @@ Update the `configs/api_keys.yaml` with your own personal wandb api key.
 
 Update the entries in `data/dl3dv_train.txt` to point to the correct processed dataset path.
 
-If you have enough GPU memory, disable gradient checkpointing in each stage function `run_stage1`, `run_stage2`, and `run_stage3` in `model/mvp.py`.
+If you have enough GPU memory, disable gradient checkpointing in each stage function `run_stage1`, `run_stage2`, and `run_stage3` in `model/backbones/mvp/model.py`.
 
 ```bash
 # Example for single GPU training
@@ -94,6 +94,28 @@ torchrun --nproc_per_node 8 --nnodes 1 \
          --rdzv_id 1234 --rdzv_endpoint localhost:8888 \
          train.py --config configs/train_stage1.yaml
 ```
+
+## 3D Token Decoder
+
+The repository also contains a frozen-MVP 3D-token decoder. MVP is used only
+through its patch-size-8 DPT feature grid. Each evidence token is augmented with
+the Plucker ray through the corresponding patch center, while only the query
+initializer, shared Gaussian readout, latent splitter, and refiner are trained.
+
+```bash
+# Fixed 2K-token initialization kill test
+python train_3d_token.py --config configs/3d_token/e00_fixed_2k.yaml
+
+# Dense latent split
+python train_3d_token.py --config configs/3d_token/e01_latent_split.yaml
+
+# Split followed by four refinement blocks
+python train_3d_token.py --config configs/3d_token/e02_refinement.yaml
+```
+
+Set `model.backbone.checkpoint_path` in the selected config to the pretrained
+MVP checkpoint. Decoder checkpoints intentionally omit the immutable backbone
+weights.
 
 
 ## TODO List

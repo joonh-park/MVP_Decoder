@@ -9,13 +9,13 @@ import traceback
 from gsplat import rasterization
 import torch.nn.functional as F
 import os
-from model.transformer import TransformerBlock
-from model.utils import (
+from model.backbones.mvp.transformer import TransformerBlock
+from model.backbones.mvp.utils import (
     compute_rays, 
     compute_plucmap,
 )
 import numpy as np
-from model.dpt_head import DPTHead
+from model.backbones.mvp.dpt_head import DPTHead
 # torch version of the spherical harmonics opacity calculation, 
 # which is used for regularization during training
 # from torch_impl import _spherical_harmonics
@@ -31,9 +31,9 @@ except ImportError:
     FA4_AVAILABLE = False
 
 if FA4_AVAILABLE:
-    from model.prope_custom_fa import PropeDotProductAttention
+    from model.backbones.mvp.prope_custom_fa import PropeDotProductAttention
 else:
-    from model.prope_custom import PropeDotProductAttention
+    from model.backbones.mvp.prope_custom import PropeDotProductAttention
 
 
 def requires_grad(model, flag=True):
@@ -172,9 +172,10 @@ class MVPModel(nn.Module):
         self.color_dim = 3 * (self.config.model.gaussians.sh_degree + 1) ** 2
         self.opacity_dim = 1 * (self.config.model.gaussians.opacity_degree + 1) ** 2        
         self._init_tokenizers()
-        self.inference_mode = hasattr(config, "inference")
+        self.feature_extractor_only = config.model.get("feature_extractor_only", False)
+        self.inference_mode = hasattr(config, "inference") or self.feature_extractor_only
         self.freeze_prev = config.model.get("freeze_prev", False)
-        if self.inference_mode:
+        if hasattr(config, "inference"):
             GaussianRenderer.CHUNK_SIZE = self.config.inference.get("chunk_size", 1)
         else:
             GaussianRenderer.CHUNK_SIZE = self.config.training.get("chunk_size", 1)
@@ -343,6 +344,110 @@ class MVPModel(nn.Module):
                                         backgrounds=torch.ones(1, 3).to(test_intr.device),
                                         rasterize_mode='classic') # (1, H, W, 3) 
         return rendering # (1, H, W, 3)
+
+    def encode_dpt_features(self, input_data_dict):
+        """Return the patch-size-8 DPT grid without running the pixel Gaussian head."""
+
+        with torch.no_grad():
+            b, v, _, h, w = input_data_dict["image"].shape
+            intrinsics = input_data_dict["fxfycxcy"]
+            c2w = input_data_dict["c2w"]
+            ray_o, ray_d = compute_plucmap(intrinsics, c2w, h, w)
+            moment = torch.cross(ray_o, ray_d, dim=2)
+            normalized_image = input_data_dict["image"] * 2.0 - 1.0
+            posed_image = torch.cat([ray_o, ray_d, moment, normalized_image], dim=2)
+
+            camera_matrices = torch.eye(
+                3, dtype=c2w.dtype, device=c2w.device
+            ).view(1, 1, 3, 3).repeat(b, v, 1, 1)
+            camera_matrices[:, :, 0, 0] = intrinsics[:, :, 0]
+            camera_matrices[:, :, 1, 1] = intrinsics[:, :, 1]
+            camera_matrices[:, :, 0, 2] = intrinsics[:, :, 2]
+            camera_matrices[:, :, 1, 2] = intrinsics[:, :, 3]
+            w2c = torch.inverse(c2w)
+
+        early_context = torch.no_grad() if self.freeze_prev else nullcontext()
+        with early_context:
+            register_tokens = self.register_token_init.repeat(b, v, 1, 1)
+            x = self.image_tokenizer(posed_image)
+            x = rearrange(x, "b (v l) d -> b v l d", v=v)
+            x = torch.cat([register_tokens, x], dim=2)
+            x = rearrange(x, "b v l d -> (b v) l d")
+            x = self.run_stage1(x, None)
+
+            register1 = self.resize_block1(x[:, :self.num_register_tokens])
+            image1_previous = x[:, self.num_register_tokens:]
+            grid_h1 = h // self.patch_size
+            grid_w1 = w // self.patch_size
+            image1 = rearrange(
+                image1_previous,
+                "bv (hh ww) d -> bv d hh ww",
+                hh=grid_h1,
+                ww=grid_w1,
+            )
+            image1 = self.merge_block1(image1)
+            image1 = rearrange(image1, "bv d hh ww -> bv (hh ww) d")
+            x = torch.cat([register1, image1], dim=1)
+            x = rearrange(
+                x,
+                "(b g v) l d -> (b g) (v l) d",
+                g=v // self.group_size,
+                v=self.group_size,
+            )
+            stage2_info = {
+                "num_input_views": v,
+                "w2c": rearrange(
+                    w2c,
+                    "b (g v) ... -> (b g) v ...",
+                    g=v // self.group_size,
+                    v=self.group_size,
+                ),
+                "Ks": rearrange(
+                    camera_matrices,
+                    "b (g v) ... -> (b g) v ...",
+                    g=v // self.group_size,
+                    v=self.group_size,
+                ),
+                "attn2": self.attention2,
+            }
+            x = self.run_stage2(x, stage2_info)
+
+            register2 = self.resize_block2(x[:, :self.num_register_tokens])
+            image2_previous = x[:, self.num_register_tokens:]
+            grid_h2 = grid_h1 // 2
+            grid_w2 = grid_w1 // 2
+            image2 = rearrange(
+                image2_previous,
+                "bv (hh ww) d -> bv d hh ww",
+                hh=grid_h2,
+                ww=grid_w2,
+            )
+            image2 = self.merge_block2(image2)
+            image2 = rearrange(image2, "bv d hh ww -> bv (hh ww) d")
+            x = torch.cat([register2, image2], dim=1)
+            x = rearrange(x, "(b v) l d -> b (v l) d", b=b, v=v)
+
+        stage3_info = {
+            "num_input_views": v,
+            "attn3": self.attention3,
+            "w2c": w2c,
+            "Ks": camera_matrices,
+        }
+        x = self.run_stage3(x, stage3_info)
+        image3_previous = x[:, self.num_register_tokens:]
+        output = self.dpt_head(
+            [image1_previous, image2_previous, image3_previous],
+            [h, w],
+            self.patch_size,
+        )
+        return rearrange(
+            output,
+            "(b v) (hh ww) d -> b v hh ww d",
+            b=b,
+            v=v,
+            hh=grid_h1,
+            ww=grid_w1,
+        )
     
     def forward(
         self,
@@ -555,9 +660,11 @@ class MVPModel(nn.Module):
 
     def run_stage1(self, x, info):
         for i in range(len(self.stage1)):
-            x = torch.utils.checkpoint.checkpoint(
-                self.stage1[i], x, False, 1, info, use_reentrant=False)
-            # x = self.stage1[i](x, False, 1, info) # 
+            if torch.is_grad_enabled():
+                x = torch.utils.checkpoint.checkpoint(
+                    self.stage1[i], x, False, 1, info, use_reentrant=False)
+            else:
+                x = self.stage1[i](x, False, 1, info)
         return x
     
     def run_stage2(self, x, info):
@@ -567,15 +674,19 @@ class MVPModel(nn.Module):
             if i % 2 == 0:
                 x = rearrange(
                     x, "(b g) (v l) d -> (b g v) l d", g=v//g, v=g)
-                x = torch.utils.checkpoint.checkpoint(
-                    self.stage2[i], x, False, 2, info, use_reentrant=False)
-                # x = self.stage2[i](x, False, 2, info)
+                if torch.is_grad_enabled():
+                    x = torch.utils.checkpoint.checkpoint(
+                        self.stage2[i], x, False, 2, info, use_reentrant=False)
+                else:
+                    x = self.stage2[i](x, False, 2, info)
                 x = rearrange(
                     x, "(b g v) l d -> (b g) (v l) d", g=v//g, v=g)
             else:
-                x = torch.utils.checkpoint.checkpoint(
-                    self.stage2[i], x, True, 2, info, use_reentrant=False)
-                # x = self.stage2[i](x, True, 2, info)
+                if torch.is_grad_enabled():
+                    x = torch.utils.checkpoint.checkpoint(
+                        self.stage2[i], x, True, 2, info, use_reentrant=False)
+                else:
+                    x = self.stage2[i](x, True, 2, info)
         return rearrange(x, "(b g) (v l) d -> (b g v) l d", g=v//g, v=g)
 
     def run_stage3(self, x, info):
@@ -583,14 +694,18 @@ class MVPModel(nn.Module):
         for i in range(len(self.stage3)):
             if i % 2 == 0:
                 x = rearrange(x, "b (v l) d -> (b v) l d", v=v)
-                x = torch.utils.checkpoint.checkpoint(
-                    self.stage3[i], x, False, 3, info, use_reentrant=False)
-                # x = self.stage3[i](x, False, 3, info)
+                if torch.is_grad_enabled():
+                    x = torch.utils.checkpoint.checkpoint(
+                        self.stage3[i], x, False, 3, info, use_reentrant=False)
+                else:
+                    x = self.stage3[i](x, False, 3, info)
                 x = rearrange(x, "(b v) l d -> b (v l) d", v=v)
             else:
-                x = torch.utils.checkpoint.checkpoint(
-                    self.stage3[i], x, True, 3, info, use_reentrant=False)
-                # x = self.stage3[i](x, True, 3, info)
+                if torch.is_grad_enabled():
+                    x = torch.utils.checkpoint.checkpoint(
+                        self.stage3[i], x, True, 3, info, use_reentrant=False)
+                else:
+                    x = self.stage3[i](x, True, 3, info)
         return rearrange(x, "b (v l) d -> (b v) l d", v=v)
 
     def save_input_video(self, input_intr, input_c2ws, gaussian_dict, H, W, save_path, insert_frame_num = 16):
@@ -600,7 +715,7 @@ class MVPModel(nn.Module):
         input_c2ws: (V, 4, 4)
         """
         import cv2
-        from model.camera_utils import get_interpolated_poses_many
+        from model.backbones.mvp.camera import get_interpolated_poses_many
         import subprocess
         V = input_intr.shape[0]
         device = input_intr.device
