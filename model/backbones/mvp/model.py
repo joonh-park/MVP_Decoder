@@ -604,7 +604,7 @@ class MVPModel(nn.Module):
                 # opacity_random = _spherical_harmonics(self.config.model.gaussians.opacity_degree, rand_dirs, opacity)
                 # opacity_random = opacity_random.sigmoid().mean()
 
-                from sh_cuda.mvp_cuda import spherical_harmonics_opacity
+                from submodules.mvp.sh_cuda.mvp_cuda import spherical_harmonics_opacity
 
                 rand_dirs = torch.randn_like(xyz, requires_grad=False)
                 opacity_random = spherical_harmonics_opacity(

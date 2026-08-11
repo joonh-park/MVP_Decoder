@@ -15,6 +15,6 @@ __pycache__/
 .ipynb_checkpoints/
 
 # 부가 데이터
-rendering_cuda/docs/source/assets/*.gif
-rendering_cuda/docs/source/assets/*.mp4
-rendering_cuda/assets/*.npz
+submodules/mvp/rendering_cuda/docs/source/assets/*.gif
+submodules/mvp/rendering_cuda/docs/source/assets/*.mp4
+submodules/mvp/rendering_cuda/assets/*.npz

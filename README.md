@@ -47,7 +47,7 @@ conda activate mvp
 pip install -r requirements.txt
 
 # 4. Install CUDA kernels
-cd rendering_cuda
+cd submodules/mvp/rendering_cuda
 pip install . --no-build-isolation
 cd ../sh_cuda
 pip install . --no-build-isolation
@@ -75,7 +75,7 @@ training_script/         # 3D-token training and shared optimizer utilities
 └── mvp/                 # Original MVP training entrypoints
 evaluation_script/       # Inference, evaluation, and metrics
 utils/                   # Config, distributed, and experiment runtime
-rendering_cuda/, sh_cuda/ # CUDA rendering extensions
+submodules/mvp/          # MVP CUDA rendering extensions
 tests/                   # Decoder and geometry unit tests
 ```
 
