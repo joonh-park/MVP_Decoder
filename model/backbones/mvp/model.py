@@ -6,7 +6,6 @@ from easydict import EasyDict as edict
 from einops.layers.torch import Rearrange
 from einops import rearrange
 import traceback
-from gsplat import rasterization
 import torch.nn.functional as F
 import os
 from model.backbones.mvp.transformer import TransformerBlock
@@ -19,10 +18,6 @@ from model.backbones.mvp.dpt_head import DPTHead
 # torch version of the spherical harmonics opacity calculation, 
 # which is used for regularization during training
 # from torch_impl import _spherical_harmonics
-
-# the CUDA version of the spherical harmonics opacity calculation, 
-# which is used for regularization during training
-from sh_cuda.mvp_cuda import spherical_harmonics_opacity
 
 try:
     from flash_attn.cute import flash_attn_func
@@ -60,6 +55,8 @@ class GaussianRenderer(torch.autograd.Function):
     @staticmethod
     def render(xyz, feature, scale, rotation, opacity, test_c2w, test_intr, 
                W, H, sh_degree, near_plane, far_plane, sh_degree_opacity):
+        from gsplat import rasterization
+
         batch_dims = xyz.shape[:-2]
         N = xyz.shape[-2]
         C = test_c2w.shape[-3]
@@ -322,6 +319,8 @@ class MVPModel(nn.Module):
 
     def render_one(self, xyz, feature, scale, rotation, opacity, test_c2w, test_intr, 
                W, H, sh_degree, near_plane, far_plane, sh_degree_opacity):
+        from gsplat import rasterization
+
         scale = scale.exp()
         rotation = F.normalize(rotation, p=2, dim=-1)
         test_w2c = test_c2w.float().inverse().unsqueeze(0) # (1, 4, 4)
@@ -604,6 +603,8 @@ class MVPModel(nn.Module):
                 # rand_dirs = F.normalize(rand_dirs, p=2, dim=-1) # make it a unit vector
                 # opacity_random = _spherical_harmonics(self.config.model.gaussians.opacity_degree, rand_dirs, opacity)
                 # opacity_random = opacity_random.sigmoid().mean()
+
+                from sh_cuda.mvp_cuda import spherical_harmonics_opacity
 
                 rand_dirs = torch.randn_like(xyz, requires_grad=False)
                 opacity_random = spherical_harmonics_opacity(

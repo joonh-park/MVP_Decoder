@@ -95,6 +95,11 @@ Update the entries in `data/dl3dv_benchmark.txt` to point to the correct process
 ```bash
 # inference
 CUDA_VISIBLE_DEVICES=0 python -m evaluation_script.inference --config configs/mvp/inference.yaml
+
+# backbone-only DPT feature smoke test
+CUDA_VISIBLE_DEVICES=0 python -m evaluation_script.inference_backbone \
+  --config configs/mvp/inference.yaml \
+  --checkpoint /path/to/mvp.pt
 ```
 
 ## Train
