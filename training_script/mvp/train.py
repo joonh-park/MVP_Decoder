@@ -7,8 +7,8 @@ from rich import print
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
 import torch.distributed as dist
-from setup import init_config, init_distributed, init_wandb_and_backup
-from training_utils import create_optimizer, create_lr_scheduler, auto_resume_job
+from utils.runtime import init_config, init_distributed, init_wandb_and_backup
+from training_script.training_utils import create_optimizer, create_lr_scheduler, auto_resume_job
 from copy import deepcopy
 from collections import OrderedDict
 
@@ -68,7 +68,7 @@ amp_dtype_mapping = {
 }
 
 # Load dataset
-dataset_name = config.training.get("dataset_name", "data.dataset.Dataset")
+dataset_name = config.training.get("dataset_name", "data.mvp_dataset.Dataset")
 module, class_name = dataset_name.rsplit(".", 1)
 Dataset = importlib.import_module(module).__dict__[class_name]
 dataset = Dataset(config)

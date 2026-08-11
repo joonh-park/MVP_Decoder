@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -42,16 +43,27 @@ def compute_patch_center_plucker(
     return torch.cat([ray_o, ray_d, moment], dim=2).permute(0, 1, 3, 4, 2).contiguous()
 
 
-class FrozenMVPBackbone(EvidenceBackbone):
-    """MVP through DPT/PFA, permanently frozen and detached."""
+class MVPBackbone(EvidenceBackbone):
+    """MVP through DPT/PFA exposed through the evidence-backbone interface."""
 
-    def __init__(self, config, checkpoint_path: str | None = None):
+    def __init__(
+        self,
+        backbone_config,
+        checkpoint_path: str | None = None,
+        freeze: bool = True,
+    ):
         super().__init__()
-        self.mvp = MVPModel(config)
+        self.freeze = freeze
+        self.mvp = MVPModel(backbone_config)
         if checkpoint_path:
             self.load_checkpoint(checkpoint_path)
-        self.requires_grad_(False)
-        self.eval()
+        if self.freeze:
+            self.requires_grad_(False)
+            self.train(False)
+
+    @property
+    def output_dim(self) -> int:
+        return self.mvp.dim3
 
     def load_checkpoint(self, checkpoint_path: str):
         path = Path(checkpoint_path)
@@ -62,26 +74,30 @@ class FrozenMVPBackbone(EvidenceBackbone):
         return self.mvp.load_state_dict(_clean_state_dict(state_dict), strict=False)
 
     def train(self, mode: bool = True):
-        super().train(False)
-        self.mvp.eval()
-        return self
+        return super().train(False if self.freeze else mode)
 
-    @torch.no_grad()
     def forward(self, images, intrinsics, c2w) -> EvidenceOutput:
-        feature = self.mvp.encode_dpt_features(
-            {"image": images, "fxfycxcy": intrinsics, "c2w": c2w}
-        ).detach()
-        grid_size = (feature.shape[2], feature.shape[3])
-        center_ray = compute_patch_center_plucker(
-            intrinsics,
-            c2w,
-            image_size=(images.shape[-2], images.shape[-1]),
-            grid_size=grid_size,
-        ).detach()
+        context = torch.no_grad() if self.freeze else nullcontext()
+        with context:
+            feature = self.mvp.encode_dpt_features(
+                {"image": images, "fxfycxcy": intrinsics, "c2w": c2w}
+            )
+            grid_size = (feature.shape[2], feature.shape[3])
+            center_ray = compute_patch_center_plucker(
+                intrinsics,
+                c2w,
+                image_size=(images.shape[-2], images.shape[-1]),
+                grid_size=grid_size,
+            )
+        if self.freeze:
+            feature = feature.detach()
+            center_ray = center_ray.detach()
+            c2w = c2w.detach()
+            intrinsics = intrinsics.detach()
         return EvidenceOutput(
             feature=feature,
             center_ray=center_ray,
             grid_size=grid_size,
-            input_c2w=c2w.detach(),
-            input_intrinsics=intrinsics.detach(),
+            input_c2w=c2w,
+            input_intrinsics=intrinsics,
         )

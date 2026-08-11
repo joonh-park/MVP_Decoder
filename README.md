@@ -59,6 +59,26 @@ pip install flash-attn-4
 ## Checkpoints
 The model checkpoints are host on [HuggingFace](https://huggingface.co/Gynjn/MVP) ([mvp_960x540](https://huggingface.co/Gynjn/MVP/resolve/main/mvp.pt?download=true)).
 
+## Project Structure
+
+```text
+configs/
+├── mvp/                 # Original posed MVP training and inference
+└── 3d_token/            # Progressive 3D-token experiments
+data/                    # MVP and dynamic multiview datasets
+model/
+├── backbones/mvp/       # Frozen evidence backbone and MVP internals
+├── token_decoder/       # Initialization, split, and refinement
+└── rendering/           # Gaussian rendering and error maps
+losses/                  # Image and token-render objectives
+training_script/         # 3D-token training and shared optimizer utilities
+└── mvp/                 # Original MVP training entrypoints
+evaluation_script/       # Inference, evaluation, and metrics
+utils/                   # Config, distributed, and experiment runtime
+rendering_cuda/, sh_cuda/ # CUDA rendering extensions
+tests/                   # Decoder and geometry unit tests
+```
+
 
 For training and evaluation, we used the DL3DV dataset after applying undistortion preprocessing with this [script](https://github.com/arthurhero/Long-LRM/blob/main/data/prosess_dl3dv.py), originally introduced in [Long-LRM](https://arthurhero.github.io/projects/llrm/index.html). 
 
@@ -68,13 +88,13 @@ For benchmark data, we provide preprocessed version originally sourced from the 
 
 ## Inference
 
-Update the `inference.ckpt_path` field in `configs/inference.yaml` with the pretrained model.
+Update the `inference.ckpt_path` field in `configs/mvp/inference.yaml` with the pretrained model.
 
 Update the entries in `data/dl3dv_benchmark.txt` to point to the correct processed dataset path.
 
 ```bash
 # inference
-CUDA_VISIBLE_DEVICES=0 python inference.py --config configs/inference.yaml
+CUDA_VISIBLE_DEVICES=0 python -m evaluation_script.inference --config configs/mvp/inference.yaml
 ```
 
 ## Train
@@ -87,12 +107,12 @@ If you have enough GPU memory, disable gradient checkpointing in each stage func
 
 ```bash
 # Example for single GPU training
-CUDA_VISIBLE_DEVICES=0 python train_single.py --config configs/train_stage1.yaml
+CUDA_VISIBLE_DEVICES=0 python -m training_script.mvp.train_single --config configs/mvp/train_stage1.yaml
 
 # Example for multi GPU training
-torchrun --nproc_per_node 8 --nnodes 1 \
+torchrun --nproc_per_node 8 --nnodes 1 --module \
          --rdzv_id 1234 --rdzv_endpoint localhost:8888 \
-         train.py --config configs/train_stage1.yaml
+         training_script.mvp.train --config configs/mvp/train_stage1.yaml
 ```
 
 ## 3D Token Decoder
@@ -104,18 +124,20 @@ initializer, shared Gaussian readout, latent splitter, and refiner are trained.
 
 ```bash
 # Fixed 2K-token initialization kill test
-python train_3d_token.py --config configs/3d_token/e00_fixed_2k.yaml
+python -m training_script.train_3d_token --config configs/3d_token/e00_fixed_2k.yaml
 
 # Dense latent split
-python train_3d_token.py --config configs/3d_token/e01_latent_split.yaml
+python -m training_script.train_3d_token --config configs/3d_token/e01_latent_split.yaml
 
 # Split followed by four refinement blocks
-python train_3d_token.py --config configs/3d_token/e02_refinement.yaml
+python -m training_script.train_3d_token --config configs/3d_token/e02_refinement.yaml
+
+# Evaluate a decoder checkpoint
+python -m evaluation_script.eval_3d_token --config configs/3d_token/e02_refinement.yaml
 ```
 
-Set `model.backbone.checkpoint_path` in the selected config to the pretrained
-MVP checkpoint. Decoder checkpoints intentionally omit the immutable backbone
-weights.
+Set `inference.ckpt_path` in `configs/mvp/inference.yaml` to the pretrained MVP
+checkpoint. Decoder checkpoints intentionally omit the immutable backbone weights.
 
 
 ## TODO List

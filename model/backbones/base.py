@@ -8,6 +8,11 @@ from model.backbones.evidence_output import EvidenceOutput
 class EvidenceBackbone(nn.Module, ABC):
     """Stable interface shared by posed and future unposed backbones."""
 
+    @property
+    @abstractmethod
+    def output_dim(self) -> int:
+        raise NotImplementedError
+
     @abstractmethod
     def forward(self, images, intrinsics, c2w) -> EvidenceOutput:
         raise NotImplementedError

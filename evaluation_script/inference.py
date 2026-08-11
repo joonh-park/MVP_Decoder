@@ -2,8 +2,8 @@ import importlib
 import os
 import torch
 from torch.utils.data import DataLoader
-from setup import init_config
-from metric_utils import export_results, summarize_evaluation
+from evaluation_script.metrics import export_results, summarize_evaluation
+from utils.runtime import init_config
 
 config = init_config()
 
@@ -22,7 +22,7 @@ amp_dtype_mapping = {
 
 
 # Load data
-dataset_name = config.inference.get("dataset_name", "data.dataset.Dataset")
+dataset_name = config.inference.get("dataset_name", "data.mvp_dataset.Dataset")
 module, class_name = dataset_name.rsplit(".", 1)
 Dataset = importlib.import_module(module).__dict__[class_name]
 dataset = Dataset(config)

@@ -6,7 +6,7 @@ from model.token_decoder.types import GaussianParams
 
 
 class GaussianRenderer(torch.autograd.Function):
-    """Chunked differentiable renderer shared by the MVP baselines and token model."""
+    """Chunked differentiable renderer for scalar-opacity 3D tokens."""
 
     CHUNK_SIZE = 1
 
@@ -24,24 +24,23 @@ class GaussianRenderer(torch.autograd.Function):
         sh_degree,
         near_plane,
         far_plane,
-        sh_degree_opacity,
     ):
         batch_dims = xyz.shape[:-2]
         num_gaussians = xyz.shape[-2]
         num_cameras = test_c2w.shape[-3]
         color_basis = (sh_degree + 1) ** 2
-        opacity_basis = (sh_degree_opacity + 1) ** 2
 
         assert xyz.shape == batch_dims + (num_gaussians, 3)
         assert feature.shape == batch_dims + (num_gaussians, color_basis, 3)
         assert scale.shape == batch_dims + (num_gaussians, 3)
         assert rotation.shape == batch_dims + (num_gaussians, 4)
-        assert opacity.shape == batch_dims + (num_gaussians, opacity_basis, 1)
+        assert opacity.shape == batch_dims + (num_gaussians, 1)
         assert test_c2w.shape == batch_dims + (num_cameras, 4, 4)
         assert test_intr.shape == batch_dims + (num_cameras, 4)
 
         scale = scale.exp()
         rotation = F.normalize(rotation, p=2, dim=-1)
+        opacity = opacity.squeeze(-1)
         test_w2c = test_c2w.float().inverse()
         intrinsics = torch.zeros(
             batch_dims + (num_cameras, 3, 3),
@@ -69,7 +68,6 @@ class GaussianRenderer(torch.autograd.Function):
             width,
             height,
             sh_degree=sh_degree,
-            sh_degree_opacity=sh_degree_opacity,
             near_plane=near_plane,
             far_plane=far_plane,
             packed=False,
@@ -96,7 +94,6 @@ class GaussianRenderer(torch.autograd.Function):
         sh_degree,
         near_plane,
         far_plane,
-        sh_degree_opacity,
     ):
         ctx.save_for_backward(
             xyz, feature, scale, rotation, opacity, test_c2ws, test_intr
@@ -106,7 +103,6 @@ class GaussianRenderer(torch.autograd.Function):
         ctx.sh_degree = sh_degree
         ctx.near_plane = near_plane
         ctx.far_plane = far_plane
-        ctx.sh_degree_opacity = sh_degree_opacity
 
         batch, views, _ = test_intr.shape
         renderings = torch.zeros(
@@ -129,7 +125,6 @@ class GaussianRenderer(torch.autograd.Function):
                         sh_degree,
                         near_plane,
                         far_plane,
-                        sh_degree_opacity,
                     )
         return renderings.requires_grad_()
 
@@ -160,7 +155,6 @@ class GaussianRenderer(torch.autograd.Function):
                         ctx.sh_degree,
                         ctx.near_plane,
                         ctx.far_plane,
-                        ctx.sh_degree_opacity,
                     )
                     rendering.backward(grad_output[batch_index, view_index:view_end])
 
@@ -177,7 +171,6 @@ class GaussianRenderer(torch.autograd.Function):
             None,
             None,
             None,
-            None,
         )
 
 
@@ -187,7 +180,6 @@ def render_gaussians(
     intrinsics: torch.Tensor,
     image_size: tuple[int, int],
     sh_degree: int,
-    opacity_degree: int,
     near_plane: float,
     far_plane: float,
 ) -> torch.Tensor:
@@ -205,6 +197,5 @@ def render_gaussians(
         sh_degree,
         near_plane,
         far_plane,
-        opacity_degree,
     )
     return rendering.permute(0, 1, 4, 2, 3).contiguous()

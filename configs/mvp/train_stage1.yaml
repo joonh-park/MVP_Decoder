@@ -1,7 +1,7 @@
 model:
   class_name: model.backbones.mvp.model.MVPModel
 
-  patch_factor: 2
+  patch_factor: 4 # half for stage1 training
   dim1: 256
   dim2: 512
   dim3: 1024
@@ -30,16 +30,15 @@ model:
 data:
   data_path: "data/dl3dv_train.txt"
   json_path: "data/dl3dv_fold_8_kmeans_input_idx.json"
-  resize_h: 544
+  resize_h: 270
   square_crop: false
-  random_crop: 0.77
 
   input_frame_select_type: "uniform"
   target_frame_select_type: "random"
   num_input_frames: 32
-  num_target_frames: 6
+  num_target_frames: 12
   target_has_input: true
-  min_frame_dist: all
+  min_frame_dist: 64
   max_frame_dist: 128
   shuffle_input_prob: 0.0
   reverse_input_prob: 0.5
@@ -54,17 +53,17 @@ training:
   chunk_size: 4
 
   api_key_path: ./configs/api_keys.yaml
-  batch_size_per_gpu: 2
+  batch_size_per_gpu: 8
   warmup: 3000
   weight_decay: 0.05
   beta1: 0.9
   beta2: 0.95
-  lr: 0.00002
-  train_steps: 50000
-  train_stage: 2
+  lr: 0.0002
+  train_steps: 100000
+  train_stage: 1
 
-  dataset_name: dataset.Dataset
-  checkpoint_dir: ./experiments/checkpoints/mvp_stage2
+  dataset_name: data.mvp_dataset.Dataset
+  checkpoint_dir: ./experiments/checkpoints/mvp_stage1
   checkpoint_every: 5000
   grad_accum_steps: 1
   grad_checkpoint_every: 1
@@ -81,3 +80,4 @@ training:
   wandb_exp_name: MVP
   wandb_log_every: 50
   wandb_project: MVP
+  

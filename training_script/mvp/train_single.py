@@ -5,8 +5,8 @@ import wandb
 import torch
 from rich import print
 from torch.utils.data import DataLoader
-from setup import init_config, init_wandb_and_backup
-from training_utils import create_optimizer, create_lr_scheduler, auto_resume_job
+from utils.runtime import init_config, init_wandb_and_backup
+from training_script.training_utils import create_optimizer, create_lr_scheduler, auto_resume_job
 
 
 def remove_module_prefix(state_dict):
@@ -39,7 +39,7 @@ amp_dtype_mapping = {
 }
 
 # Load dataset
-dataset_name = config.training.get("dataset_name", "data.dataset.Dataset")
+dataset_name = config.training.get("dataset_name", "data.mvp_dataset.Dataset")
 module, class_name = dataset_name.rsplit(".", 1)
 Dataset = importlib.import_module(module).__dict__[class_name]
 dataset = Dataset(config)

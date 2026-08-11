@@ -6,14 +6,16 @@ import torch
 import wandb
 
 from data import get_train_data_loader
-from setup import init_config, init_wandb_and_backup
-from training_3d_token_utils import make_camera_batch
-from training_utils import auto_resume_job, create_lr_scheduler, create_optimizer
+from data.batch import make_camera_batch
+from utils.runtime import init_config, init_wandb_and_backup
+from training_script.training_utils import auto_resume_job, create_lr_scheduler, create_optimizer
 
 
 def decoder_state_dict(model):
-    """Do not duplicate the immutable MVP checkpoint in every decoder checkpoint."""
+    """Omit backbone weights only while the backbone is frozen."""
 
+    if not getattr(model.backbone, "freeze", False):
+        return model.state_dict()
     return {
         name: value
         for name, value in model.state_dict().items()
@@ -143,7 +145,7 @@ while step < config.training.train_steps * grad_accumulation:
                     "lr_scheduler": scheduler.state_dict(),
                     "fwdbwd_pass_step": step,
                     "param_update_step": update_step,
-                    "backbone_checkpoint": config.model.backbone.checkpoint_path,
+                    "backbone_checkpoint": model.backbone_checkpoint_path,
                 },
                 checkpoint_path,
             )

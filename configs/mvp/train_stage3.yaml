@@ -1,7 +1,7 @@
 model:
   class_name: model.backbones.mvp.model.MVPModel
 
-  patch_factor: 4 # half for stage1 training
+  patch_factor: 2
   dim1: 256
   dim2: 512
   dim3: 1024
@@ -15,6 +15,8 @@ model:
   group_size: 4
   patch_size: 8
   in_channels: 12
+
+  freeze_prev: true
 
   gaussians:
     sh_degree: 1
@@ -30,21 +32,23 @@ model:
 data:
   data_path: "data/dl3dv_train.txt"
   json_path: "data/dl3dv_fold_8_kmeans_input_idx.json"
-  resize_h: 270
+  resize_h: 544
   square_crop: false
+  random_crop: 0.77
 
   input_frame_select_type: "uniform"
   target_frame_select_type: "random"
   num_input_frames: 32
-  num_target_frames: 12
+  num_target_frames: 6
   target_has_input: true
-  min_frame_dist: 64
+  min_frame_dist: all
   max_frame_dist: 128
   shuffle_input_prob: 0.0
   reverse_input_prob: 0.5
+  seed: 777  
 
 training:
-  # resume_ckpt: /path/to/cktp
+  # resume_ckpt: /path/to/stage2_ckpt
   # reset_training_state: true
   use_amp: true
   use_tf32: true
@@ -53,17 +57,24 @@ training:
   chunk_size: 4
 
   api_key_path: ./configs/api_keys.yaml
-  batch_size_per_gpu: 8
+  num_views: [16, 32, 64, 128] # input
+  target_views: [6, 6, 6, 1]
+  batch_size_per_gpu: [4, 2, 1, 1]
+  res_dict:
+    - [544, 960]
+    - [544, 960]
+    - [544, 960]
+    - [544, 960]
   warmup: 3000
   weight_decay: 0.05
   beta1: 0.9
   beta2: 0.95
-  lr: 0.0002
-  train_steps: 100000
-  train_stage: 1
+  lr: 0.00002
+  train_steps: 50000
+  train_stage: 2
 
-  dataset_name: dataset.Dataset
-  checkpoint_dir: ./experiments/checkpoints/mvp_stage1
+  dataset_name: data.mvp_dataset.Dataset
+  checkpoint_dir: ./experiments/checkpoints/mvp_stage2
   checkpoint_every: 5000
   grad_accum_steps: 1
   grad_checkpoint_every: 1

@@ -2,7 +2,7 @@ from easydict import EasyDict as edict
 import torch.nn.functional as F
 from torch import nn
 
-from model.loss import LossComputer
+from losses.image_loss import LossComputer
 
 
 class TokenRenderLoss(nn.Module):

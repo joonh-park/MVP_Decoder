@@ -3,9 +3,9 @@ import importlib
 import torch
 
 from data import get_train_data_loader
-from metric_utils import compute_psnr
-from setup import init_config
-from training_3d_token_utils import make_camera_batch
+from data.batch import make_camera_batch
+from evaluation_script.metrics import compute_psnr
+from utils.runtime import init_config
 
 
 config = init_config()

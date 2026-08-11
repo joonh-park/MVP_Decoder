@@ -46,7 +46,7 @@ data:
   target_uniform_every: 8
 
 inference:
-  dataset_name: dataset.Dataset
+  dataset_name: data.mvp_dataset.Dataset
   amp_dtype: bf16
   use_amp: true  
   api_key_path: ./configs/api_keys.yaml

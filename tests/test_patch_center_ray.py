@@ -1,6 +1,6 @@
 import torch
 
-from model.backbones.mvp.frozen import compute_patch_center_plucker
+from model.backbones.mvp.backbone import compute_patch_center_plucker
 
 
 def test_patch_center_ray_matches_original_patch_center():

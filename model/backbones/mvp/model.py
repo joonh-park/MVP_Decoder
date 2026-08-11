@@ -281,7 +281,7 @@ class MVPModel(nn.Module):
             requires_grad(self.resize_block2, False)            
 
         if not self.inference_mode:
-            from model.loss import LossComputer
+            from losses.image_loss import LossComputer
             self.loss_computer = LossComputer(config)
 
     def train(self, mode=True):

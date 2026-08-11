@@ -18,10 +18,11 @@ from model.token_decoder.latent_split import LatentSplitter
 from model.token_decoder.token_initializer import TokenInitializer
 from model.token_decoder.token_refiner import TokenRefiner
 from model.token_decoder.types import TokenDecoderOutput
+from utils.config import load_config
 
 
 class MVP3DTokenModel(nn.Module):
-    """Frozen posed MVP evidence followed by an emergent latent 3D-token decoder."""
+    """Posed MVP evidence followed by an emergent latent 3D-token decoder."""
 
     def __init__(self, config):
         super().__init__()
@@ -29,14 +30,26 @@ class MVP3DTokenModel(nn.Module):
         decoder_config = config.model.decoder
         gaussian_config = config.model.gaussians
 
-        backbone_module, backbone_name = config.model.backbone.class_name.rsplit(".", 1)
+        backbone_settings = config.model.backbone
+        backbone_module, backbone_name = backbone_settings.class_name.rsplit(".", 1)
         backbone_class = importlib.import_module(backbone_module).__dict__[backbone_name]
+        backbone_config = load_config(backbone_settings.config_path)
+        checkpoint_path = backbone_settings.get("checkpoint_path")
+        if checkpoint_path is None:
+            checkpoint_path = backbone_config.get("inference", {}).get("ckpt_path")
+        if checkpoint_path is None:
+            raise ValueError(
+                "Backbone checkpoint is missing: set inference.ckpt_path in "
+                f"{backbone_settings.config_path} or model.backbone.checkpoint_path"
+            )
+        self.backbone_checkpoint_path = checkpoint_path
         self.backbone = backbone_class(
-            config,
-            checkpoint_path=config.model.backbone.get("checkpoint_path"),
+            backbone_config,
+            checkpoint_path=checkpoint_path,
+            freeze=backbone_settings.get("freeze", True),
         )
         self.evidence_adapter = EvidenceAdapter(
-            feature_dim=config.model.dim3,
+            feature_dim=self.backbone.output_dim,
             token_dim=decoder_config.token_dim,
         )
         self.initializer = TokenInitializer(
@@ -49,7 +62,6 @@ class MVP3DTokenModel(nn.Module):
         self.gaussian_head = SharedGaussianHead(
             dim=decoder_config.token_dim,
             sh_degree=gaussian_config.sh_degree,
-            opacity_degree=gaussian_config.opacity_degree,
             position_range=decoder_config.get("position_range", 4.0),
             scale_bias=gaussian_config.scale_bias,
             scale_max=gaussian_config.scale_max,
@@ -92,7 +104,6 @@ class MVP3DTokenModel(nn.Module):
 
     def train(self, mode: bool = True):
         super().train(mode)
-        self.backbone.eval()
         self.loss_computer.eval()
         return self
 
@@ -104,7 +115,6 @@ class MVP3DTokenModel(nn.Module):
             intrinsics=camera_data["fxfycxcy"],
             image_size=(image.shape[-2], image.shape[-1]),
             sh_degree=self.config.model.gaussians.sh_degree,
-            opacity_degree=self.config.model.gaussians.opacity_degree,
             near_plane=self.config.model.gaussians.near_plane,
             far_plane=self.config.model.gaussians.far_plane,
         )

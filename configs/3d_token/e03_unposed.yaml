@@ -1,10 +1,10 @@
 extends: e02_refinement.yaml
 
-# Replace this class and checkpoint after the posed decoder is validated.
+# Replace this class and config after the posed decoder is validated.
 model:
   backbone:
-    class_name: model.backbones.mvp.frozen.FrozenMVPBackbone
-    checkpoint_path: ./mvp.pt
+    class_name: model.backbones.mvp.backbone.MVPBackbone
+    config_path: configs/mvp/inference.yaml
 
 training:
   checkpoint_dir: ./experiments/checkpoints/3d_token_e03

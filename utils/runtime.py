@@ -15,6 +15,8 @@ import copy
 from pathlib import Path
 import time
 
+from utils.config import load_config_with_bases
+
 #################Init Config  Begins#################
 
 def process_overrides(overrides):
@@ -34,15 +36,6 @@ def process_overrides(overrides):
     
     return processed
 
-
-def load_config_with_bases(config_path):
-    config_path = Path(config_path)
-    config = OmegaConf.load(config_path)
-    if "extends" not in config:
-        return config
-    base_path = config_path.parent / config.extends
-    del config["extends"]
-    return OmegaConf.merge(load_config_with_bases(base_path), config)
 
 def init_config():
     parser = argparse.ArgumentParser()
@@ -242,8 +235,9 @@ def init_wandb_and_backup(config):
     )
 
     # Source code backup
-    cur_dir = os.path.dirname(os.path.realpath(__file__))
-    trgt_dir = os.path.join(config.training.checkpoint_dir, "src", os.path.basename(cur_dir))
+    project_root = Path(__file__).resolve().parents[1]
+    cur_dir = str(project_root)
+    trgt_dir = os.path.join(config.training.checkpoint_dir, "src", project_root.name)
     os.makedirs(trgt_dir, exist_ok=True)
     extension_to_backup=(".py", ".yaml", ".sh", ".bash", ".json")
     exclude_dirs=("wandb", ".git", "checkpoints", "experiments")

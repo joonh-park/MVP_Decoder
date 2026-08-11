@@ -1,25 +1,10 @@
 model:
   class_name: model.mvp_3d_token.MVP3DTokenModel
-  feature_extractor_only: true
-
-  patch_factor: 2
-  dim1: 256
-  dim2: 512
-  dim3: 1024
-  num_register_tokens: 4
-  head_dim: 64
-  inter_multi: 4
-  qk_norm: true
-  stage1_nlayer: 2
-  stage2_nlayer: 4
-  stage3_nlayer: 8
-  group_size: 4
-  patch_size: 8
-  in_channels: 12
 
   backbone:
-    class_name: model.backbones.mvp.frozen.FrozenMVPBackbone
-    checkpoint_path: ./mvp.pt
+    class_name: model.backbones.mvp.backbone.MVPBackbone
+    config_path: configs/mvp/inference.yaml
+    freeze: true
 
   decoder:
     token_dim: 1024
@@ -37,7 +22,6 @@ model:
 
   gaussians:
     sh_degree: 1
-    opacity_degree: 2
     near_plane: 0.01
     far_plane: 1000000.0
     scale_bias: -6.9
