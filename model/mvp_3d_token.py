@@ -79,8 +79,9 @@ class MVP3DTokenModel(nn.Module):
             dim=decoder_config.token_dim,
             sh_degree=gaussian_config.sh_degree,
             position_range=decoder_config.get("position_range", 4.0),
-            scale_weight=gaussian_config.get("scale_weight", 0.001),
-            clamping=gaussian_config.get("clamping", -1.0),
+            scale_min=gaussian_config.get("scale_min", 0.5),
+            scale_max=gaussian_config.get("scale_max", 15.0),
+            scale_multiplier=gaussian_config.get("scale_multiplier", 0.1),
             opacity_bias=gaussian_config.opacity_bias,
             position_mode=decoder_config.get("position_mode", "free"),
             depth_min=decoder_config.get("depth_min", 0.01),
@@ -167,6 +168,7 @@ class MVP3DTokenModel(nn.Module):
             z_initial,
             evidence=evidence,
             center_ray=frozen.center_ray,
+            input_intrinsics=frozen.input_intrinsics,
         )
 
         render_initial = None
@@ -219,6 +221,7 @@ class MVP3DTokenModel(nn.Module):
                 z_final,
                 evidence=evidence,
                 center_ray=frozen.center_ray,
+                input_intrinsics=frozen.input_intrinsics,
             )
             if target_data_dict is not None and target_data_dict.get("image") is not None:
                 render_final = self._render(

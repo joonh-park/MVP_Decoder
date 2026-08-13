@@ -36,14 +36,21 @@ class RayAnchorSelector(nn.Module):
         z: torch.Tensor,
         evidence: torch.Tensor,
         center_ray: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        ray_scale_multiplier: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if center_ray.shape[-1] != 9:
             raise ValueError(f"center_ray must have 9 channels, got {center_ray.shape}")
         rays = center_ray.flatten(1, -2).float()
+        scale_multipliers = ray_scale_multiplier.flatten(1, -2).float()
         if evidence.shape[:2] != rays.shape[:2]:
             raise ValueError(
                 "Evidence and GT-pose ray counts must match, got "
                 f"{evidence.shape} and {rays.shape}"
+            )
+        if scale_multipliers.shape != rays.shape[:-1] + (1,):
+            raise ValueError(
+                "Ray scale multipliers must align with GT-pose rays, got "
+                f"{scale_multipliers.shape} and {rays.shape}"
             )
 
         query = self.query_proj(self.query_norm(z)).float()
@@ -57,6 +64,7 @@ class RayAnchorSelector(nn.Module):
             chunk_size = query.shape[1]
         selected_origins = []
         selected_directions = []
+        selected_scale_multipliers = []
         for query_chunk in query.split(chunk_size, dim=1):
             weights = torch.softmax(
                 torch.matmul(query_chunk, key_t) * self.scale,
@@ -64,6 +72,9 @@ class RayAnchorSelector(nn.Module):
             )
             selected_origins.append(torch.matmul(weights, origins))
             selected_directions.append(torch.matmul(weights, directions))
+            selected_scale_multipliers.append(
+                torch.matmul(weights, scale_multipliers)
+            )
 
         ray_origin = torch.cat(selected_origins, dim=1)
         ray_direction = F.normalize(
@@ -72,7 +83,8 @@ class RayAnchorSelector(nn.Module):
             dim=-1,
             eps=1e-8,
         )
-        return ray_origin, ray_direction
+        scale_multiplier = torch.cat(selected_scale_multipliers, dim=1)
+        return ray_origin, ray_direction, scale_multiplier
 
 
 class SharedGaussianHead(nn.Module):
@@ -83,8 +95,9 @@ class SharedGaussianHead(nn.Module):
         dim: int,
         sh_degree: int,
         position_range: float,
-        scale_weight: float,
-        clamping: float,
+        scale_min: float,
+        scale_max: float,
+        scale_multiplier: float,
         opacity_bias: float,
         position_mode: str = "free",
         depth_min: float = 0.01,
@@ -107,8 +120,16 @@ class SharedGaussianHead(nn.Module):
             )
         self.sh_degree = sh_degree
         self.position_range = position_range
-        self.scale_weight = scale_weight
-        self.clamping = clamping
+        if not 0 < scale_min < scale_max:
+            raise ValueError(
+                f"scale bounds must satisfy 0 < scale_min < scale_max, got "
+                f"{scale_min}, {scale_max}"
+            )
+        if scale_multiplier <= 0:
+            raise ValueError("scale_multiplier must be positive")
+        self.scale_min = scale_min
+        self.scale_max = scale_max
+        self.scale_multiplier = scale_multiplier
         self.opacity_bias = opacity_bias
         self.position_mode = position_mode
         self.depth_min = depth_min
@@ -137,6 +158,7 @@ class SharedGaussianHead(nn.Module):
         z: torch.Tensor,
         evidence: torch.Tensor | None = None,
         center_ray: torch.Tensor | None = None,
+        input_intrinsics: torch.Tensor | None = None,
     ) -> GaussianParams:
         raw = self.proj(self.norm(z)).float()
         position, feature, scale, rotation, opacity = torch.split(
@@ -145,20 +167,42 @@ class SharedGaussianHead(nn.Module):
             dim=-1,
         )
         if self.position_mode == "gt_ray":
-            if evidence is None or center_ray is None:
+            if evidence is None or center_ray is None or input_intrinsics is None:
                 raise ValueError(
-                    "GT-ray positioning requires decoder evidence and center_ray"
+                    "GT-ray positioning requires decoder evidence, center_ray, "
+                    "and input_intrinsics"
                 )
-            ray_origin, ray_direction = self.ray_selector(z, evidence, center_ray)
+            grid_h, grid_w = center_ray.shape[2:4]
+            focal_x = input_intrinsics[..., 0].float().clamp_min(1e-8)
+            focal_y = input_intrinsics[..., 1].float().clamp_min(1e-8)
+            view_scale_multiplier = self.scale_multiplier * (
+                focal_x.reciprocal() + focal_y.reciprocal()
+            )
+            ray_scale_multiplier = view_scale_multiplier[
+                ..., None, None, None
+            ].expand(-1, -1, grid_h, grid_w, -1)
+            ray_origin, ray_direction, projected_scale_multiplier = (
+                self.ray_selector(
+                    z,
+                    evidence,
+                    center_ray,
+                    ray_scale_multiplier,
+                )
+            )
             depth = self.depth_min + torch.sigmoid(
                 position.mean(dim=-1, keepdim=True) + self.depth_logit_bias
             ) * (self.depth_max - self.depth_min)
             xyz = ray_origin + ray_direction * depth
+            scale = self.scale_min + (
+                self.scale_max - self.scale_min
+            ) * scale.sigmoid()
+            scale = scale * depth * projected_scale_multiplier
         else:
             xyz = torch.tanh(position) * self.position_range
-        scale = self.scale_weight * F.softplus(scale)
-        if self.clamping > 0:
-            scale = scale.clamp_max(self.clamping)
+            scale = self.scale_min + (
+                self.scale_max - self.scale_min
+            ) * scale.sigmoid()
+            scale = scale * self.scale_multiplier
         # GaussianRenderer keeps log-scale as its internal interface.
         scale = scale.clamp_min(torch.finfo(scale.dtype).tiny).log()
 
