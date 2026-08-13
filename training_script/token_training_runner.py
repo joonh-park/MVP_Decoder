@@ -144,6 +144,9 @@ def run_training(required_stage):
         config.training.weight_decay,
         config.training.lr,
         (config.training.beta1, config.training.beta2),
+        backbone_lr_multiplier=config.training.get(
+            "backbone_lr_multiplier", 0.01
+        ),
     )
     scheduler = create_lr_scheduler(
         optimizer,

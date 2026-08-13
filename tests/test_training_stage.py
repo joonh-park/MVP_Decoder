@@ -1,6 +1,9 @@
 from torch import nn
 
-from training_script.training_utils import configure_3d_token_training_stage
+from training_script.training_utils import (
+    configure_3d_token_training_stage,
+    create_optimizer,
+)
 
 
 class _Backbone(nn.Linear):
@@ -66,3 +69,23 @@ def test_full_stage_can_train_unfrozen_backbone():
 
     assert any(name.startswith("backbone.") for name in trainable_names)
     assert all(parameter.requires_grad for parameter in model.backbone.parameters())
+
+
+def test_optimizer_applies_backbone_lr_multiplier():
+    model = _TokenModel()
+    model.backbone.freeze = False
+    configure_3d_token_training_stage(model, "init")
+
+    optimizer, _, _ = create_optimizer(
+        model,
+        weight_decay=0.05,
+        learning_rate=2.0e-4,
+        betas=(0.9, 0.95),
+        backbone_lr_multiplier=0.01,
+    )
+    group_lrs = {
+        group["group_name"]: group["lr"] for group in optimizer.param_groups
+    }
+
+    assert group_lrs["decoder"] == 2.0e-4
+    assert group_lrs["backbone"] == 2.0e-6

@@ -75,22 +75,49 @@ def configure_3d_token_training_stage(model, stage):
     return trainable_names
 
 
-def create_optimizer(model, weight_decay, learning_rate, betas):
+def create_optimizer(
+    model,
+    weight_decay,
+    learning_rate,
+    betas,
+    backbone_lr_multiplier=1.0,
+):
+    if backbone_lr_multiplier <= 0:
+        raise ValueError("backbone_lr_multiplier must be positive")
     # start with all of the candidate parameters
     all_param_dict = {name: param for name, param in model.named_parameters()}
     # filter out those that do not require grad
     optimized_param_dict = {name: param for name, param in all_param_dict.items() if param.requires_grad}
 
-    decay_params, nodecay_params = [], []
+    grouped_params = {
+        (False, True): [],
+        (False, False): [],
+        (True, True): [],
+        (True, False): [],
+    }
     for name, param in optimized_param_dict.items():
-        if param.dim() == 1 or getattr(param, '_no_weight_decay', False):
-            nodecay_params.append(param)
-        else:
-            decay_params.append(param)
-    optim_groups = [
-        {'params': decay_params, 'weight_decay': weight_decay},
-        {'params': nodecay_params, 'weight_decay': 0.0}
-    ]
+        normalized_name = name.removeprefix("module.")
+        is_backbone = normalized_name.startswith("backbone.")
+        use_decay = not (
+            param.dim() == 1 or getattr(param, '_no_weight_decay', False)
+        )
+        grouped_params[(is_backbone, use_decay)].append(param)
+
+    optim_groups = []
+    for (is_backbone, use_decay), params in grouped_params.items():
+        if not params:
+            continue
+        group_lr = learning_rate * (
+            backbone_lr_multiplier if is_backbone else 1.0
+        )
+        optim_groups.append(
+            {
+                'params': params,
+                'weight_decay': weight_decay if use_decay else 0.0,
+                'lr': group_lr,
+                'group_name': 'backbone' if is_backbone else 'decoder',
+            }
+        )
     # use fused AdamW optimizer by default. 
     # optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas,fused=True)
     optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas)
@@ -103,7 +130,11 @@ def create_optimizer(model, weight_decay, learning_rate, betas):
                 if len(parts) > 2 and parts[0] == 'module':
                     return parts[1] + '.' + parts[2]
                 return parts[0]  # Fallback to first part if no 'module.' prefix
-            print(f'Optimizer: AdamW, learning rate: {learning_rate}, weight decay: {weight_decay}, betas: {betas}')
+            print(
+                f'Optimizer: AdamW, learning rate: {learning_rate}, '
+                f'backbone multiplier: {backbone_lr_multiplier}, '
+                f'weight decay: {weight_decay}, betas: {betas}'
+            )
             # Number of parameters
             total_params = sum(p.numel() for p in model.parameters())
             trainable_params = sum(p.numel() for p in optimized_param_dict.values())
