@@ -43,9 +43,9 @@ model:
     scale_bias: -4.0
     opacity_bias: -2.0
     opacity_mapping:
-      initial: -2.0
+      initial: 0.0
       final: 0.0
-      warm_up: 1000
+      warm_up: 1
     low_pass_filter: 10.0
     low_pass_filter_min: 0.3
     decrease_lpf_step: 1000
