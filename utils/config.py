@@ -10,9 +10,16 @@ def load_config_with_bases(config_path):
     if "extends" not in config:
         return config
 
-    base_path = config_path.parent / config.extends
+    extends = config.extends
     del config["extends"]
-    return OmegaConf.merge(load_config_with_bases(base_path), config)
+    if isinstance(extends, str):
+        extends = [extends]
+
+    bases = [
+        load_config_with_bases(config_path.parent / base_path)
+        for base_path in extends
+    ]
+    return OmegaConf.merge(*bases, config)
 
 
 def load_config(config_path):

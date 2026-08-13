@@ -1,4 +1,6 @@
-extends: base.yaml
+extends:
+  - base.yaml
+  - ../data/dl3dv.yaml
 
 model:
   decoder:

@@ -1,0 +1,25 @@
+data:
+  data_path: data/dl3dv_train.txt
+  json_path: data/dl3dv_fold_8_kmeans_input_idx.json
+  seed: 42
+  resize_h: 544
+  square_crop: false
+  random_crop: 0.77
+  input_frame_select_type: uniform
+  target_frame_select_type: random
+  num_input_frames: 32
+  num_target_frames: 6
+  target_has_input: true
+  min_frame_dist: all
+  max_frame_dist: 128
+  shuffle_input_prob: 0.0
+  reverse_input_prob: 0.5
+
+training:
+  dataset_name: data.dataset.Dataset
+  num_views: [32]
+  target_views: [6]
+  res_dict: [[544, 960]]
+  batch_size_per_gpu: [1]
+  num_workers: 4
+  prefetch_factor: 4
