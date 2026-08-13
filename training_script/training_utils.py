@@ -40,8 +40,6 @@ def configure_3d_token_training_stage(model, stage):
         )
 
     if stage == "init":
-        if not getattr(model.backbone, "freeze", False):
-            raise ValueError("Init training requires model.backbone.freeze=true")
         if model.split_enabled or model.refinement_enabled:
             raise ValueError(
                 "Init training requires split.enabled=false and refinement.layers=[]"
@@ -51,16 +49,21 @@ def configure_3d_token_training_stage(model, stage):
             "initializer.",
             "gaussian_head.",
         )
+        train_backbone = not getattr(model.backbone, "freeze", True)
         for name, parameter in model.named_parameters():
-            parameter.requires_grad_(name.startswith(trainable_prefixes))
+            trainable = name.startswith(trainable_prefixes) or (
+                train_backbone and name.startswith("backbone.")
+            )
+            parameter.requires_grad_(trainable)
     else:
         if not (model.split_enabled or model.refinement_enabled):
             raise ValueError(
                 "Full training requires split or refinement to be enabled"
             )
+        train_backbone = not getattr(model.backbone, "freeze", True)
         for name, parameter in model.named_parameters():
-            trainable = not (
-                name.startswith("backbone.") or name.startswith("loss_computer.")
+            trainable = not name.startswith("loss_computer.") and (
+                train_backbone or not name.startswith("backbone.")
             )
             parameter.requires_grad_(trainable)
 

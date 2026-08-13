@@ -34,6 +34,17 @@ def test_init_stage_selects_only_initial_decoder_modules():
     assert all(not parameter.requires_grad for parameter in model.splitter.parameters())
 
 
+def test_init_stage_can_train_unfrozen_backbone():
+    model = _TokenModel()
+    model.backbone.freeze = False
+
+    trainable_names = configure_3d_token_training_stage(model, "init")
+
+    assert any(name.startswith("backbone.") for name in trainable_names)
+    assert all(parameter.requires_grad for parameter in model.backbone.parameters())
+    assert all(not parameter.requires_grad for parameter in model.splitter.parameters())
+
+
 def test_full_stage_trains_every_decoder_module():
     model = _TokenModel()
     model.split_enabled = True
@@ -44,3 +55,14 @@ def test_full_stage_trains_every_decoder_module():
     assert all(parameter.requires_grad for parameter in model.initializer.parameters())
     assert all(parameter.requires_grad for parameter in model.splitter.parameters())
     assert all(parameter.requires_grad for parameter in model.refiner.parameters())
+
+
+def test_full_stage_can_train_unfrozen_backbone():
+    model = _TokenModel()
+    model.backbone.freeze = False
+    model.split_enabled = True
+
+    trainable_names = configure_3d_token_training_stage(model, "full")
+
+    assert any(name.startswith("backbone.") for name in trainable_names)
+    assert all(parameter.requires_grad for parameter in model.backbone.parameters())
