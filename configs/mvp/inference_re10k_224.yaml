@@ -1,4 +1,4 @@
-extends: inference.yaml
+extends: inference_re10k.yaml
 
 model:
   input_image_size: [224, 224]

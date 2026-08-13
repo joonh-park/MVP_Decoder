@@ -16,12 +16,3 @@ data:
   augment: true
   skip_bad_shape: true
   seed: 42
-
-training:
-  dataset_name: data.re10k_dataset.RE10KDataset
-  num_views: [2]
-  target_views: [4]
-  res_dict: [[224, 224]]
-  batch_size_per_gpu: [4]
-  num_workers: 8
-  prefetch_factor: 2

@@ -14,12 +14,3 @@ data:
   max_frame_dist: 128
   shuffle_input_prob: 0.0
   reverse_input_prob: 0.5
-
-training:
-  dataset_name: data.dataset.Dataset
-  num_views: [32]
-  target_views: [6]
-  res_dict: [[544, 960]]
-  batch_size_per_gpu: [1]
-  num_workers: 4
-  prefetch_factor: 4

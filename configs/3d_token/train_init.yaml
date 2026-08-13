@@ -1,6 +1,6 @@
 extends:
   - base.yaml
-  - ../data/dl3dv.yaml
+  - ../data/dl3dv_train.yaml
 
 model:
   decoder:

@@ -1,0 +1,28 @@
+model:
+  class_name: model.backbones.mvp.model.MVPModel
+
+  patch_factor: 2
+  dim1: 256
+  dim2: 512
+  dim3: 1024
+  num_register_tokens: 4
+  head_dim: 64
+  inter_multi: 4
+  qk_norm: true
+  stage1_nlayer: 2
+  stage2_nlayer: 4
+  stage3_nlayer: 8
+  group_size: 4
+  patch_size: 8
+  in_channels: 12
+
+  gaussians:
+    sh_degree: 1
+    opacity_degree: 2
+    near_plane: 0.01
+    far_plane: 1000000.0
+    scale_bias: -6.9
+    scale_max: -1.2
+    opacity_bias: -2.0
+    align_to_pixel: true
+    max_dist: 500.0

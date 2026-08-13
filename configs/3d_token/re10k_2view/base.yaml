@@ -1,6 +1,6 @@
 extends:
   - ../base.yaml
-  - ../../data/re10k.yaml
+  - ../../data/re10k_train.yaml
 
 model:
   backbone:

@@ -1,0 +1,14 @@
+extends: base.yaml
+
+inference:
+  amp_dtype: bf16
+  use_amp: true
+  api_key_path: ./configs/api_keys.yaml
+  batch_size_per_gpu: 1
+  num_threads: 8
+  num_workers: 4
+  prefetch_factor: 4
+  use_tf32: true
+  ckpt_path: ./checkpoints/mvp.pt
+  compute_metrics: true
+  chunk_size: 4

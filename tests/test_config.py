@@ -1,4 +1,9 @@
+from pathlib import Path
+
 from utils.config import load_config_with_bases
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_multiple_config_bases_merge_in_order(tmp_path):
@@ -17,3 +22,29 @@ def test_multiple_config_bases_merge_in_order(tmp_path):
     assert config.model.dim == 64
     assert config.model.depth == 4
     assert config.data.name == "re10k"
+
+
+def test_3d_token_training_selects_dataset_specific_loader():
+    dl3dv = load_config_with_bases(
+        PROJECT_ROOT / "configs/3d_token/train_init.yaml"
+    )
+    re10k = load_config_with_bases(
+        PROJECT_ROOT / "configs/3d_token/re10k_2view/train_init.yaml"
+    )
+
+    assert dl3dv.training.dataset_name == "data.dataset.Dataset"
+    assert dl3dv.training.num_views == [32]
+    assert re10k.training.dataset_name == "data.re10k_dataset.RE10KDataset"
+    assert re10k.training.num_views == [2]
+
+
+def test_mvp_re10k_inference_uses_re10k_data_base():
+    config = load_config_with_bases(
+        PROJECT_ROOT / "configs/mvp/inference_re10k_224.yaml"
+    )
+
+    assert config.inference.dataset_name == "data.re10k_dataset.RE10KDataset"
+    assert config.data.stage == "test"
+    assert config.data.num_context_views == 2
+    assert config.data.pose_normalization == "mvp"
+    assert "data_path" not in config.data
