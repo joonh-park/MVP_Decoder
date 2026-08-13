@@ -57,6 +57,17 @@ class TokenRenderLoss(nn.Module):
         self.visibility_loss = VisibilityLoss(
             clip=visibility_config.get("clip", 1.0)
         )
+        scale_config = config.loss.get("scale_regularization", {})
+        self.scale_regularization_weight = scale_config.get("weight", 0.0)
+        self.scale_regularization_threshold = scale_config.get("threshold", 0.1)
+
+    def _scale_regularization(self, scale, reference):
+        if scale is None or self.scale_regularization_weight == 0.0:
+            return reference.new_zeros(())
+        penalty = F.relu(
+            scale.float() - self.scale_regularization_threshold
+        ).square().mean()
+        return self.scale_regularization_weight * penalty
 
     def forward(
         self,
@@ -67,19 +78,30 @@ class TokenRenderLoss(nn.Module):
         split_target=None,
         visibility_initial=None,
         visibility_final=None,
+        scale_initial=None,
+        scale_final=None,
         global_step=0,
     ):
         initial = self.image_loss(render_initial, target, global_step)
         initial_visibility = initial.total.new_zeros(())
         if visibility_initial is not None:
             initial_visibility = self.visibility_weight * visibility_initial
+        initial_scale_regularization = self._scale_regularization(
+            scale_initial,
+            initial.total,
+        )
         if render_final is None:
             return edict(
-                loss=initial.total + initial_visibility,
+                loss=(
+                    initial.total
+                    + initial_visibility
+                    + initial_scale_regularization
+                ),
                 mse=initial.mse,
                 lpips=initial.lpips,
                 psnr=initial.psnr,
                 visibility=initial_visibility,
+                scale_regularization=initial_scale_regularization,
             )
 
         final = self.image_loss(render_final, target, global_step)
@@ -91,21 +113,31 @@ class TokenRenderLoss(nn.Module):
         final_visibility = final.total.new_zeros(())
         if visibility_final is not None:
             final_visibility = self.visibility_weight * visibility_final
+        final_scale_regularization = self._scale_regularization(
+            scale_final,
+            final.total,
+        )
         return edict(
             loss=(
                 final.total
                 + self.initial_weight * initial.total
                 + final_visibility
                 + self.initial_weight * initial_visibility
+                + final_scale_regularization
+                + self.initial_weight * initial_scale_regularization
                 + split_score
             ),
             initial_mse=self.initial_weight * initial.mse,
             initial_lpips=self.initial_weight * initial.lpips,
             initial_psnr=initial.psnr,
             initial_visibility=self.initial_weight * initial_visibility,
+            initial_scale_regularization=(
+                self.initial_weight * initial_scale_regularization
+            ),
             final_mse=final.mse,
             final_lpips=final.lpips,
             final_psnr=final.psnr,
             final_visibility=final_visibility,
+            final_scale_regularization=final_scale_regularization,
             split_score=split_score,
         )

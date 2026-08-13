@@ -74,8 +74,9 @@ class SharedGaussianHead(nn.Module):
             dim=-1,
         )
         xyz = xyz + self.position_anchor.to(device=xyz.device, dtype=xyz.dtype)
-        scale = self.scale_min + (self.scale_max - self.scale_min) * torch.sigmoid(
-            scale + self.scale_bias
+        scale = F.softplus(scale + self.scale_bias).clamp(
+            min=self.scale_min,
+            max=self.scale_max,
         )
         scale = scale.log()
 

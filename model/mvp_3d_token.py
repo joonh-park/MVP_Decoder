@@ -266,6 +266,12 @@ class MVP3DTokenModel(nn.Module):
                 split_target=split_target,
                 visibility_initial=visibility_initial,
                 visibility_final=visibility_final,
+                scale_initial=gaussians_initial.scale.exp(),
+                scale_final=(
+                    gaussians_final.scale.exp()
+                    if gaussians_final is not None
+                    else None
+                ),
                 global_step=global_step,
             )
         return result
