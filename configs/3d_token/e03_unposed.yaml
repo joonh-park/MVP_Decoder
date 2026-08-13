@@ -8,4 +8,6 @@ model:
 
 training:
   checkpoint_dir: ./experiments/checkpoints/3d_token_e03
-  wandb_exp_name: 3D_Token_MVP_E03_Unposed
+
+wandb:
+  name: 3D_Token_MVP_E03_Unposed

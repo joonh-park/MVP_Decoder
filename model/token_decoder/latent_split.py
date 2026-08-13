@@ -8,9 +8,22 @@ from model.token_decoder.types import SplitOutput
 class LatentSplitter(nn.Module):
     """Dense-train latent splitter; adaptive selection can reuse its score head."""
 
-    def __init__(self, dim: int, num_heads: int, mlp_ratio: float = 4.0):
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        mlp_ratio: float = 4.0,
+        dropout: float = 0.0,
+        query_chunk_size: int = 0,
+    ):
         super().__init__()
-        self.conditioner = CrossAttentionBlock(dim, num_heads, mlp_ratio)
+        self.conditioner = CrossAttentionBlock(
+            dim,
+            num_heads,
+            mlp_ratio,
+            dropout=dropout,
+            query_chunk_size=query_chunk_size,
+        )
         self.norm = nn.LayerNorm(dim)
         self.score_head = nn.Linear(dim, 1)
         self.child_delta = nn.Linear(dim, 2 * dim)

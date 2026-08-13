@@ -29,6 +29,19 @@ class MVP3DTokenModel(nn.Module):
         self.config = config
         decoder_config = config.model.decoder
         gaussian_config = config.model.gaussians
+        attention_config = decoder_config.attention
+        initializer_config = decoder_config.initializer
+        attention_kwargs = {
+            "num_heads": attention_config.num_heads,
+            "mlp_ratio": attention_config.get("mlp_ratio", 4.0),
+            "dropout": attention_config.get("dropout", 0.0),
+            "query_chunk_size": attention_config.get("query_chunk_size", 0),
+            "evidence_chunk_size": attention_config.get(
+                "evidence_chunk_size", 1024
+            ),
+            "slot_epsilon": attention_config.get("slot_epsilon", 1e-8),
+            "slot_null": attention_config.get("slot_null", True),
+        }
 
         backbone_settings = config.model.backbone
         backbone_module, backbone_name = backbone_settings.class_name.rsplit(".", 1)
@@ -53,11 +66,10 @@ class MVP3DTokenModel(nn.Module):
             token_dim=decoder_config.token_dim,
         )
         self.initializer = TokenInitializer(
-            num_queries=decoder_config.num_queries,
+            num_queries=initializer_config.num_queries,
             dim=decoder_config.token_dim,
-            num_heads=decoder_config.num_heads,
-            num_layers=decoder_config.init_layers,
-            mlp_ratio=decoder_config.get("mlp_ratio", 4.0),
+            layer_specs=initializer_config.layers,
+            **attention_kwargs,
         )
         self.gaussian_head = SharedGaussianHead(
             dim=decoder_config.token_dim,
@@ -74,7 +86,8 @@ class MVP3DTokenModel(nn.Module):
         self.split_threshold = split_config.get("threshold", 0.5)
 
         refinement_config = decoder_config.refinement
-        self.refinement_enabled = refinement_config.num_layers > 0
+        refinement_layers = list(refinement_config.get("layers", []))
+        self.refinement_enabled = len(refinement_layers) > 0
         needs_error = self.split_enabled or self.refinement_enabled
         self.error_encoder = (
             ErrorEvidenceEncoder(decoder_config.token_dim) if needs_error else None
@@ -82,8 +95,10 @@ class MVP3DTokenModel(nn.Module):
         self.splitter = (
             LatentSplitter(
                 dim=decoder_config.token_dim,
-                num_heads=decoder_config.num_heads,
-                mlp_ratio=decoder_config.get("mlp_ratio", 4.0),
+                num_heads=attention_config.num_heads,
+                mlp_ratio=attention_config.get("mlp_ratio", 4.0),
+                dropout=attention_config.get("dropout", 0.0),
+                query_chunk_size=attention_config.get("query_chunk_size", 0),
             )
             if self.split_enabled
             else None
@@ -91,9 +106,8 @@ class MVP3DTokenModel(nn.Module):
         self.refiner = (
             TokenRefiner(
                 dim=decoder_config.token_dim,
-                num_heads=decoder_config.num_heads,
-                num_layers=refinement_config.num_layers,
-                mlp_ratio=decoder_config.get("mlp_ratio", 4.0),
+                layer_specs=refinement_layers,
+                **attention_kwargs,
             )
             if self.refinement_enabled
             else None
@@ -119,7 +133,7 @@ class MVP3DTokenModel(nn.Module):
             far_plane=self.config.model.gaussians.far_plane,
         )
 
-    def forward(self, input_data_dict, target_data_dict=None):
+    def forward(self, input_data_dict, target_data_dict=None, global_step=0):
         frozen = self.backbone(
             input_data_dict["image"],
             input_data_dict["fxfycxcy"],
@@ -200,6 +214,7 @@ class MVP3DTokenModel(nn.Module):
                 target_data_dict["image"],
                 split_scores=split_scores,
                 split_target=split_target,
+                global_step=global_step,
             )
         return result
 

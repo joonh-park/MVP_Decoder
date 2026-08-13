@@ -121,19 +121,21 @@ The repository also contains a frozen-MVP 3D-token decoder. MVP is used only
 through its patch-size-8 DPT feature grid. Each evidence token is augmented with
 the Plucker ray through the corresponding patch center, while only the query
 initializer, shared Gaussian readout, latent splitter, and refiner are trained.
+The initializer and refiner never concatenate evidence and query tokens. Their
+ordered `cross` and competitive `slot` layers are configured by
+`model.decoder.initializer.layers` and `model.decoder.refinement.layers`.
 
 ```bash
-# Fixed 2K-token initialization kill test
-python -m training_script.train_3d_token --config configs/3d_token/e00_fixed_2k.yaml
+# Train the evidence adapter, query initializer, and Gaussian head
+python -m training_script.train_3d_token_init \
+  --config configs/3d_token/train_init.yaml
 
-# Dense latent split
-python -m training_script.train_3d_token --config configs/3d_token/e01_latent_split.yaml
-
-# Split followed by four refinement blocks
-python -m training_script.train_3d_token --config configs/3d_token/e02_refinement.yaml
+# Load the init checkpoint and train split plus refinement
+python -m training_script.train_3d_token_full \
+  --config configs/3d_token/train_full.yaml
 
 # Evaluate a decoder checkpoint
-python -m evaluation_script.eval_3d_token --config configs/3d_token/e02_refinement.yaml
+python -m evaluation_script.eval_3d_token --config configs/3d_token/train_full.yaml
 ```
 
 Set `inference.ckpt_path` in `configs/mvp/inference.yaml` to the pretrained MVP

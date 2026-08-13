@@ -1,6 +1,6 @@
 from torch import nn
 
-from model.token_decoder.attention import CrossAttentionBlock
+from model.token_decoder.attention import TokenLayerStack
 
 
 class TokenRefiner(nn.Module):
@@ -10,15 +10,27 @@ class TokenRefiner(nn.Module):
         num_heads: int,
         num_layers: int = 4,
         mlp_ratio: float = 4.0,
+        layer_specs=None,
+        dropout: float = 0.0,
+        query_chunk_size: int = 0,
+        evidence_chunk_size: int = 1024,
+        slot_epsilon: float = 1e-8,
+        slot_null: bool = True,
     ):
         super().__init__()
-        self.layers = nn.ModuleList(
-            CrossAttentionBlock(dim, num_heads, mlp_ratio)
-            for _ in range(num_layers)
+        if layer_specs is None:
+            layer_specs = ["cross"] * num_layers
+        self.stack = TokenLayerStack(
+            dim=dim,
+            layer_specs=layer_specs,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            dropout=dropout,
+            query_chunk_size=query_chunk_size,
+            evidence_chunk_size=evidence_chunk_size,
+            slot_epsilon=slot_epsilon,
+            slot_null=slot_null,
         )
-        self.output_norm = nn.LayerNorm(dim)
 
     def forward(self, z, evidence):
-        for layer in self.layers:
-            z = layer(z, evidence)
-        return self.output_norm(z)
+        return self.stack(z, evidence)

@@ -184,7 +184,7 @@ class Dataset(BaseDataset):
         # gram-schmidt process
         forward_avg = F.normalize(forward_avg, dim=0)
         down_avg = F.normalize(down_avg - down_avg.dot(forward_avg) * forward_avg, dim=0)
-        right_avg = torch.cross(down_avg, forward_avg)
+        right_avg = torch.cross(down_avg, forward_avg, dim=0)
         pos_avg = torch.stack([right_avg, down_avg, forward_avg, position_avg], dim=1) # (3, 4)
         pos_avg = torch.cat([pos_avg, torch.tensor([[0, 0, 0, 1]], device=pos_avg.device).float()], dim=0) # (4, 4)
         pos_avg_inv = torch.inverse(pos_avg)
@@ -268,5 +268,4 @@ if __name__ == "__main__":
         print("target_c2ws:", data["test_c2ws"].shape)
         print("pos_avg_inv:", data["input_pos_avg_inv"].shape)
         print("scene_scale:", data["scene_scale"])
-
 

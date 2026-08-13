@@ -1,4 +1,4 @@
-extends: base.yaml
+extends: train_full.yaml
 
 model:
   decoder:
@@ -6,8 +6,10 @@ model:
       enabled: true
       dense: true
     refinement:
-      num_layers: 0
+      layers: []
 
 training:
   checkpoint_dir: ./experiments/checkpoints/3d_token_e01
-  wandb_exp_name: 3D_Token_MVP_E01_Latent_Split
+
+wandb:
+  name: 3D_Token_MVP_E01_Latent_Split

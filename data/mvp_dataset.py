@@ -207,7 +207,7 @@ class Dataset(Dataset):
             # gram-schmidt process
             forward_avg = F.normalize(forward_avg, dim=0)
             down_avg = F.normalize(down_avg - down_avg.dot(forward_avg) * forward_avg, dim=0)
-            right_avg = torch.cross(down_avg, forward_avg)
+            right_avg = torch.cross(down_avg, forward_avg, dim=0)
             pos_avg = torch.stack([right_avg, down_avg, forward_avg, position_avg], dim=1) # (3, 4)
             pos_avg = torch.cat([pos_avg, torch.tensor([[0, 0, 0, 1]], device=pos_avg.device).float()], dim=0) # (4, 4)
             pos_avg_inv = torch.inverse(pos_avg)

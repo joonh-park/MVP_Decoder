@@ -216,23 +216,31 @@ def local_backup_src_code(
 
 
 def init_wandb_and_backup(config):
-    # API key validation
-    assert os.path.exists(
-        config.training.api_key_path
-    ), f"API key file does not exist: {config.training.api_key_path}"
-    api_keys = edict(yaml.safe_load(open(config.training.api_key_path, "r")))
-    assert api_keys.wandb is not None, "Wandb API key not found in api key file"
-
-    # WandB setup and login
-    os.environ["WANDB_API_KEY"] = api_keys.wandb
-
-    # WandB initialization
-    config_copy = copy.deepcopy(config)
-    wandb.init(
-        project=config.training.wandb_project,
-        name=config.training.wandb_exp_name,
-        config=config_copy,
-    )
+    wandb_config = config.get("wandb")
+    if wandb_config is None:
+        wandb_config = edict(
+            {
+                "project": config.training.wandb_project,
+                "name": config.training.wandb_exp_name,
+                "mode": "online",
+                "tags": None,
+            }
+        )
+    wandb_enabled = wandb_config.get("mode", "online") != "disabled"
+    if wandb_enabled:
+        assert os.path.exists(
+            config.training.api_key_path
+        ), f"API key file does not exist: {config.training.api_key_path}"
+        api_keys = edict(yaml.safe_load(open(config.training.api_key_path, "r")))
+        assert api_keys.wandb is not None, "Wandb API key not found in api key file"
+        os.environ["WANDB_API_KEY"] = api_keys.wandb
+        wandb.init(
+            project=wandb_config.project,
+            name=wandb_config.name,
+            mode=wandb_config.get("mode", "online"),
+            tags=wandb_config.get("tags"),
+            config=copy.deepcopy(config),
+        )
 
     # Source code backup
     project_root = Path(__file__).resolve().parents[1]
@@ -248,7 +256,9 @@ def init_wandb_and_backup(config):
     with open(config_save_path, 'w') as f:
         yaml.dump(dict(config), f)
 
-    wandb.run.log_code(
-        trgt_dir,  
-        include_fn=lambda path: path.endswith(extension_to_backup),
-    )
+    if wandb_enabled:
+        wandb.run.log_code(
+            trgt_dir,
+            include_fn=lambda path: path.endswith(extension_to_backup),
+        )
+    return wandb_enabled

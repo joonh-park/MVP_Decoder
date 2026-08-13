@@ -1,4 +1,4 @@
-extends: base.yaml
+extends: train_full.yaml
 
 model:
   decoder:
@@ -6,8 +6,14 @@ model:
       enabled: true
       dense: true
     refinement:
-      num_layers: 4
+      layers:
+        - type: cross
+          repeat: 2
+        - type: slot
+          repeat: 2
 
 training:
   checkpoint_dir: ./experiments/checkpoints/3d_token_e02
-  wandb_exp_name: 3D_Token_MVP_E02_Refinement
+
+wandb:
+  name: 3D_Token_MVP_E02_Refinement

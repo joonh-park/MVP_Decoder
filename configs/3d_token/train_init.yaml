@@ -1,0 +1,16 @@
+extends: base.yaml
+
+model:
+  decoder:
+    split:
+      enabled: false
+    refinement:
+      layers: []
+
+training:
+  stage: init
+  checkpoint_dir: ./experiments/checkpoints/3d_token_init
+
+wandb:
+  name: 3D_Token_MVP_Init
+  tags: [posed, mvp, 3d-token, init]

@@ -28,6 +28,50 @@ def format_number(num):
         return f"{num / 1_000:.2f}K"
     return str(num)
 
+
+def configure_3d_token_training_stage(model, stage):
+    """Select exactly which 3D-token modules are optimized in each stage."""
+
+    valid_stages = {"init", "full"}
+    if stage not in valid_stages:
+        raise ValueError(
+            f"Unknown 3D-token training stage '{stage}'; "
+            f"expected one of {sorted(valid_stages)}"
+        )
+
+    if stage == "init":
+        if not getattr(model.backbone, "freeze", False):
+            raise ValueError("Init training requires model.backbone.freeze=true")
+        if model.split_enabled or model.refinement_enabled:
+            raise ValueError(
+                "Init training requires split.enabled=false and refinement.layers=[]"
+            )
+        trainable_prefixes = (
+            "evidence_adapter.",
+            "initializer.",
+            "gaussian_head.",
+        )
+        for name, parameter in model.named_parameters():
+            parameter.requires_grad_(name.startswith(trainable_prefixes))
+    else:
+        if not (model.split_enabled or model.refinement_enabled):
+            raise ValueError(
+                "Full training requires split or refinement to be enabled"
+            )
+        for name, parameter in model.named_parameters():
+            trainable = not (
+                name.startswith("backbone.") or name.startswith("loss_computer.")
+            )
+            parameter.requires_grad_(trainable)
+
+    trainable_names = [
+        name for name, parameter in model.named_parameters() if parameter.requires_grad
+    ]
+    if not trainable_names:
+        raise ValueError(f"Training stage '{stage}' selected no trainable parameters")
+    return trainable_names
+
+
 def create_optimizer(model, weight_decay, learning_rate, betas):
     # start with all of the candidate parameters
     all_param_dict = {name: param for name, param in model.named_parameters()}
@@ -153,5 +197,3 @@ def auto_resume_job(
             print_rank0(f"Failed to load optimizer and lr_scheduler from {ckpt_path}")
     
     return optimizer, lr_scheduler, forward_pass_step, param_update_step
-
-
