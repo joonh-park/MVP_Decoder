@@ -141,6 +141,7 @@ class MVP3DTokenModel(nn.Module):
             near_plane=self.config.model.gaussians.near_plane,
             far_plane=self.config.model.gaussians.far_plane,
             low_pass_filter=low_pass_filter,
+            background_color=self.config.model.gaussians.background_color,
         )
 
     def forward(self, input_data_dict, target_data_dict=None, global_step=0):

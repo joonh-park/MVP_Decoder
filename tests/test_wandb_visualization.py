@@ -60,9 +60,11 @@ def test_make_xyz_projection_view_builds_three_axis_cameras(monkeypatch):
         near_plane,
         far_plane,
         low_pass_filter,
+        background_color,
     ):
         captured["c2w"] = c2w
         captured["intrinsics"] = intrinsics
+        captured["background_color"] = background_color
         return torch.zeros(3, height, width, 3)
 
     monkeypatch.setattr(
@@ -84,6 +86,7 @@ def test_make_xyz_projection_view_builds_three_axis_cameras(monkeypatch):
         near_plane=0.01,
         far_plane=1.0e6,
         low_pass_filter=0.3,
+        background_color=[0.0, 0.0, 0.0],
         resolution=32,
     )
 
@@ -91,3 +94,4 @@ def test_make_xyz_projection_view_builds_three_axis_cameras(monkeypatch):
     assert captured["c2w"].shape == (3, 4, 4)
     assert captured["intrinsics"].shape == (3, 4)
     assert torch.all(captured["intrinsics"][:, :2] > 0)
+    assert captured["background_color"] == [0.0, 0.0, 0.0]

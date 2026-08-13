@@ -68,6 +68,7 @@ def _wandb_visualizations(config, output, input_data, target_data, update_step):
         near_plane=config.model.gaussians.near_plane,
         far_plane=config.model.gaussians.far_plane,
         low_pass_filter=output.low_pass_filter,
+        background_color=config.model.gaussians.background_color,
         resolution=visualization_config.get("projection_resolution", 256),
         margin=visualization_config.get("projection_margin", 0.1),
         fov_degrees=visualization_config.get("projection_fov_degrees", 10.0),

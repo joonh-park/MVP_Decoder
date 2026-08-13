@@ -45,6 +45,7 @@ class GaussianRenderer(torch.autograd.Function):
         near_plane,
         far_plane,
         low_pass_filter,
+        background_color,
     ):
         batch_dims = xyz.shape[:-2]
         num_gaussians = xyz.shape[-2]
@@ -73,10 +74,8 @@ class GaussianRenderer(torch.autograd.Function):
         intrinsics[..., 0, 2] = test_intr[..., 2]
         intrinsics[..., 1, 2] = test_intr[..., 3]
         intrinsics[..., 2, 2] = 1.0
-        background = torch.ones(
-            batch_dims + (num_cameras, 3),
-            device=test_intr.device,
-            dtype=test_intr.dtype,
+        background = test_intr.new_tensor(background_color).expand(
+            batch_dims + (num_cameras, 3)
         )
         rendering, _, _ = rasterization(
             xyz,
@@ -117,6 +116,7 @@ class GaussianRenderer(torch.autograd.Function):
         near_plane,
         far_plane,
         low_pass_filter,
+        background_color,
     ):
         ctx.save_for_backward(
             xyz, feature, scale, rotation, opacity, test_c2ws, test_intr
@@ -127,6 +127,7 @@ class GaussianRenderer(torch.autograd.Function):
         ctx.near_plane = near_plane
         ctx.far_plane = far_plane
         ctx.low_pass_filter = low_pass_filter
+        ctx.background_color = background_color
 
         batch, views, _ = test_intr.shape
         renderings = torch.zeros(
@@ -150,6 +151,7 @@ class GaussianRenderer(torch.autograd.Function):
                         near_plane,
                         far_plane,
                         low_pass_filter,
+                        background_color,
                     )
         return renderings.requires_grad_()
 
@@ -181,6 +183,7 @@ class GaussianRenderer(torch.autograd.Function):
                         ctx.near_plane,
                         ctx.far_plane,
                         ctx.low_pass_filter,
+                        ctx.background_color,
                     )
                     rendering.backward(grad_output[batch_index, view_index:view_end])
 
@@ -190,6 +193,7 @@ class GaussianRenderer(torch.autograd.Function):
             scale.grad,
             rotation.grad,
             opacity.grad,
+            None,
             None,
             None,
             None,
@@ -210,7 +214,12 @@ def render_gaussians(
     near_plane: float,
     far_plane: float,
     low_pass_filter: float,
+    background_color: tuple[float, float, float] | list[float],
 ) -> torch.Tensor:
+    if len(background_color) != 3:
+        raise ValueError(
+            f"background_color must contain 3 values, got {background_color}"
+        )
     height, width = image_size
     rendering = GaussianRenderer.apply(
         gaussians.xyz,
@@ -226,5 +235,6 @@ def render_gaussians(
         near_plane,
         far_plane,
         low_pass_filter,
+        background_color,
     )
     return rendering.permute(0, 1, 4, 2, 3).contiguous()

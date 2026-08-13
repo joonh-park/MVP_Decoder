@@ -39,6 +39,7 @@ def make_xyz_projection_view(
     near_plane,
     far_plane,
     low_pass_filter,
+    background_color,
     resolution=256,
     margin=0.1,
     fov_degrees=10.0,
@@ -87,6 +88,7 @@ def make_xyz_projection_view(
         near_plane,
         far_plane,
         low_pass_filter,
+        background_color,
     )
     projections = projections.permute(0, 3, 1, 2).clamp(0.0, 1.0).cpu()
     return torch.cat(tuple(projections), dim=2)
