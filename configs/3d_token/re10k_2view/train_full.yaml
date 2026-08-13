@@ -14,9 +14,9 @@ model:
 
 training:
   stage: full
-  initialization_checkpoint: ./experiments/checkpoints/re10k_2view_init
-  checkpoint_dir: ./experiments/checkpoints/re10k_2view_full
+  initialization_checkpoint: ./experiments/checkpoints/re10k_2view_init_gt_ray
+  checkpoint_dir: ./experiments/checkpoints/re10k_2view_full_gt_ray
 
 wandb:
-  name: 3D_Token_MVP_RE10K_2View_Full
-  tags: [posed, mvp, 3d-token, re10k, 2-view, "224", full]
+  name: 3D_Token_MVP_RE10K_2View_Full_GT_Ray
+  tags: [posed, mvp, 3d-token, gt-ray, re10k, 2-view, "224", full]

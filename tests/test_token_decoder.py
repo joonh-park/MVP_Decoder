@@ -20,6 +20,35 @@ def test_fixed_query_initialization_and_gaussian_readout():
     assert torch.all((gaussians.opacity > 0) & (gaussians.opacity < 1))
 
 
+def test_gt_ray_gaussian_positions_stay_on_pose_conditioned_ray():
+    head = SharedGaussianHead(
+        32,
+        1,
+        4.0,
+        -6.9,
+        -1.2,
+        -2.0,
+        position_mode="gt_ray",
+        depth_min=0.1,
+        depth_max=5.0,
+        depth_init=2.0,
+        anchor_dim=8,
+        anchor_query_chunk_size=3,
+    )
+    z = torch.randn(2, 7, 32)
+    evidence = torch.randn(2, 1, 32)
+    center_ray = torch.tensor(
+        [1.0, 2.0, 3.0, 0.0, 0.0, 1.0, 2.0, -1.0, 0.0]
+    ).view(1, 1, 1, 1, 9).expand(2, -1, -1, -1, -1)
+
+    gaussians = head(z, evidence=evidence, center_ray=center_ray)
+
+    assert torch.allclose(gaussians.xyz[..., 0], torch.ones(2, 7), atol=1e-6)
+    assert torch.allclose(gaussians.xyz[..., 1], torch.full((2, 7), 2.0), atol=1e-6)
+    depth = gaussians.xyz[..., 2] - 3.0
+    assert torch.all((depth > 0.1) & (depth < 5.0))
+
+
 def test_dense_split_and_refinement_shapes():
     z = torch.randn(2, 8, 32)
     evidence = torch.randn(2, 40, 32)

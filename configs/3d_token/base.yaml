@@ -9,6 +9,13 @@ model:
   decoder:
     token_dim: 1024
     position_range: 4.0
+    position_mode: gt_ray
+    depth_min: 0.01
+    depth_max: 500.0
+    depth_init: 2.0
+    anchor_dim: 64
+    anchor_query_chunk_size: 256
+    anchor_temperature: 0.1
 
     attention:
       num_heads: 16

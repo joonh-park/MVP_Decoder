@@ -82,6 +82,15 @@ class MVP3DTokenModel(nn.Module):
             scale_bias=gaussian_config.scale_bias,
             scale_max=gaussian_config.scale_max,
             opacity_bias=gaussian_config.opacity_bias,
+            position_mode=decoder_config.get("position_mode", "free"),
+            depth_min=decoder_config.get("depth_min", 0.01),
+            depth_max=decoder_config.get("depth_max", 500.0),
+            depth_init=decoder_config.get("depth_init", 2.0),
+            anchor_dim=decoder_config.get("anchor_dim", 64),
+            anchor_query_chunk_size=decoder_config.get(
+                "anchor_query_chunk_size", 256
+            ),
+            anchor_temperature=decoder_config.get("anchor_temperature", 0.1),
         )
 
         split_config = decoder_config.split
@@ -154,7 +163,11 @@ class MVP3DTokenModel(nn.Module):
         )
         evidence = self.evidence_adapter(frozen.feature, frozen.center_ray)
         z_initial = self.initializer(evidence)
-        gaussians_initial = self.gaussian_head(z_initial)
+        gaussians_initial = self.gaussian_head(
+            z_initial,
+            evidence=evidence,
+            center_ray=frozen.center_ray,
+        )
 
         render_initial = None
         if target_data_dict is not None and target_data_dict.get("image") is not None:
@@ -202,7 +215,11 @@ class MVP3DTokenModel(nn.Module):
             if self.refinement_enabled:
                 z_final = self.refiner(z_final, conditioned_evidence)
 
-            gaussians_final = self.gaussian_head(z_final)
+            gaussians_final = self.gaussian_head(
+                z_final,
+                evidence=evidence,
+                center_ray=frozen.center_ray,
+            )
             if target_data_dict is not None and target_data_dict.get("image") is not None:
                 render_final = self._render(
                     gaussians_final,
