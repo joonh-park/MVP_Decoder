@@ -3,6 +3,7 @@ extends: ../base.yaml
 model:
   backbone:
     config_path: configs/mvp/inference_re10k_224.yaml
+    freeze: true
 
 data:
   root: datasets/re10k

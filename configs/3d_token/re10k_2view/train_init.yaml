@@ -9,8 +9,8 @@ model:
 
 training:
   stage: init
-  checkpoint_dir: ./experiments/checkpoints/re10k_2view_init_gt_ray
+  checkpoint_dir: ./experiments/checkpoints/re10k_2view_init
 
 wandb:
-  name: 3D_Token_MVP_RE10K_2View_Init_GT_Ray
-  tags: [posed, mvp, 3d-token, gt-ray, re10k, 2-view, "224", init]
+  name: 3D_Token_MVP_RE10K_2View_Init
+  tags: [posed, mvp, 3d-token, re10k, 2-view, "224", init]

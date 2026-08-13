@@ -10,7 +10,7 @@ from model.token_decoder.token_refiner import TokenRefiner
 def test_fixed_query_initialization_and_gaussian_readout():
     evidence = torch.randn(2, 40, 32)
     initializer = TokenInitializer(8, 32, 4, num_layers=2)
-    head = SharedGaussianHead(32, 1, 4.0, 0.5, 15.0, 0.1, -2.0)
+    head = SharedGaussianHead(32, 1, [0.0, 0.0, 1.0], -6.9, -1.2, -2.0)
     z = initializer(evidence)
     gaussians = head(z)
     assert z.shape == (2, 8, 32)
@@ -20,44 +20,17 @@ def test_fixed_query_initialization_and_gaussian_readout():
     assert torch.all((gaussians.opacity > 0) & (gaussians.opacity < 1))
 
 
-def test_gt_ray_gaussian_positions_stay_on_pose_conditioned_ray():
-    head = SharedGaussianHead(
-        32,
-        1,
-        4.0,
-        0.5,
-        15.0,
-        0.1,
-        -2.0,
-        position_mode="gt_ray",
-        depth_min=0.1,
-        depth_max=5.0,
-        depth_init=2.0,
-        anchor_dim=8,
-        anchor_query_chunk_size=3,
-    )
-    z = torch.randn(2, 7, 32)
-    evidence = torch.randn(2, 1, 32)
-    center_ray = torch.tensor(
-        [1.0, 2.0, 3.0, 0.0, 0.0, 1.0, 2.0, -1.0, 0.0]
-    ).view(1, 1, 1, 1, 9).expand(2, -1, -1, -1, -1)
-    intrinsics = torch.tensor([200.0, 200.0, 100.0, 100.0]).view(1, 1, 4)
-    intrinsics = intrinsics.expand(2, -1, -1)
+def test_c3g_style_xyz_is_anchor_plus_free_residual():
+    head = SharedGaussianHead(32, 0, [0.0, 0.0, 1.0], -6.9, -1.2, -2.0)
+    with torch.no_grad():
+        head.proj.weight.zero_()
+        head.proj.bias.zero_()
+        head.proj.bias[:3] = torch.tensor([5.0, -5.0, 2.0])
 
-    gaussians = head(
-        z,
-        evidence=evidence,
-        center_ray=center_ray,
-        input_intrinsics=intrinsics,
-    )
+    gaussians = head(torch.randn(1, 2, 32))
 
-    assert torch.allclose(gaussians.xyz[..., 0], torch.ones(2, 7), atol=1e-6)
-    assert torch.allclose(gaussians.xyz[..., 1], torch.full((2, 7), 2.0), atol=1e-6)
-    depth = gaussians.xyz[..., 2] - 3.0
-    assert torch.all((depth > 0.1) & (depth < 5.0))
-    screen_scale = gaussians.scale.exp() / depth[..., None] * 200.0
-    assert torch.all(screen_scale >= 0.1)
-    assert torch.all(screen_scale <= 3.0)
+    expected = torch.tensor([5.0, -5.0, 3.0]).expand(1, 2, 3)
+    assert torch.allclose(gaussians.xyz, expected)
 
 
 def test_dense_split_and_refinement_shapes():

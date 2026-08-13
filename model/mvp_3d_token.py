@@ -68,6 +68,7 @@ class MVP3DTokenModel(nn.Module):
         self.evidence_adapter = EvidenceAdapter(
             feature_dim=self.backbone.output_dim,
             token_dim=decoder_config.token_dim,
+            geometry_dim=decoder_config.get("geometry_dim", 128),
         )
         self.initializer = TokenInitializer(
             num_queries=initializer_config.num_queries,
@@ -78,20 +79,10 @@ class MVP3DTokenModel(nn.Module):
         self.gaussian_head = SharedGaussianHead(
             dim=decoder_config.token_dim,
             sh_degree=gaussian_config.sh_degree,
-            position_range=decoder_config.get("position_range", 4.0),
-            scale_min=gaussian_config.get("scale_min", 0.5),
-            scale_max=gaussian_config.get("scale_max", 15.0),
-            scale_multiplier=gaussian_config.get("scale_multiplier", 0.1),
+            position_anchor=decoder_config.get("position_anchor", [0.0, 0.0, 1.0]),
+            scale_bias=gaussian_config.scale_bias,
+            scale_max=gaussian_config.scale_max,
             opacity_bias=gaussian_config.opacity_bias,
-            position_mode=decoder_config.get("position_mode", "free"),
-            depth_min=decoder_config.get("depth_min", 0.01),
-            depth_max=decoder_config.get("depth_max", 500.0),
-            depth_init=decoder_config.get("depth_init", 2.0),
-            anchor_dim=decoder_config.get("anchor_dim", 64),
-            anchor_query_chunk_size=decoder_config.get(
-                "anchor_query_chunk_size", 256
-            ),
-            anchor_temperature=decoder_config.get("anchor_temperature", 0.1),
         )
 
         split_config = decoder_config.split
@@ -164,12 +155,7 @@ class MVP3DTokenModel(nn.Module):
         )
         evidence = self.evidence_adapter(frozen.feature, frozen.center_ray)
         z_initial = self.initializer(evidence)
-        gaussians_initial = self.gaussian_head(
-            z_initial,
-            evidence=evidence,
-            center_ray=frozen.center_ray,
-            input_intrinsics=frozen.input_intrinsics,
-        )
+        gaussians_initial = self.gaussian_head(z_initial)
 
         render_initial = None
         if target_data_dict is not None and target_data_dict.get("image") is not None:
@@ -217,12 +203,7 @@ class MVP3DTokenModel(nn.Module):
             if self.refinement_enabled:
                 z_final = self.refiner(z_final, conditioned_evidence)
 
-            gaussians_final = self.gaussian_head(
-                z_final,
-                evidence=evidence,
-                center_ray=frozen.center_ray,
-                input_intrinsics=frozen.input_intrinsics,
-            )
+            gaussians_final = self.gaussian_head(z_final)
             if target_data_dict is not None and target_data_dict.get("image") is not None:
                 render_final = self._render(
                     gaussians_final,
