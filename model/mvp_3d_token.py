@@ -80,9 +80,13 @@ class MVP3DTokenModel(nn.Module):
             dim=decoder_config.token_dim,
             sh_degree=gaussian_config.sh_degree,
             position_anchor=decoder_config.get("position_anchor", [0.0, 0.0, 1.0]),
-            scale_bias=gaussian_config.scale_bias,
+            scale_min=gaussian_config.scale_min,
             scale_max=gaussian_config.scale_max,
+            scale_bias=gaussian_config.scale_bias,
             opacity_bias=gaussian_config.opacity_bias,
+            opacity_mapping_initial=gaussian_config.opacity_mapping.initial,
+            opacity_mapping_final=gaussian_config.opacity_mapping.final,
+            opacity_mapping_warm_up=gaussian_config.opacity_mapping.warm_up,
         )
 
         split_config = decoder_config.split
@@ -155,7 +159,7 @@ class MVP3DTokenModel(nn.Module):
         )
         evidence = self.evidence_adapter(frozen.feature, frozen.center_ray)
         z_initial = self.initializer(evidence)
-        gaussians_initial = self.gaussian_head(z_initial)
+        gaussians_initial = self.gaussian_head(z_initial, global_step=global_step)
 
         render_initial = None
         if target_data_dict is not None and target_data_dict.get("image") is not None:
@@ -203,7 +207,7 @@ class MVP3DTokenModel(nn.Module):
             if self.refinement_enabled:
                 z_final = self.refiner(z_final, conditioned_evidence)
 
-            gaussians_final = self.gaussian_head(z_final)
+            gaussians_final = self.gaussian_head(z_final, global_step=global_step)
             if target_data_dict is not None and target_data_dict.get("image") is not None:
                 render_final = self._render(
                     gaussians_final,

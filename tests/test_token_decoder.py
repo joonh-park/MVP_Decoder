@@ -10,7 +10,9 @@ from model.token_decoder.token_refiner import TokenRefiner
 def test_fixed_query_initialization_and_gaussian_readout():
     evidence = torch.randn(2, 40, 32)
     initializer = TokenInitializer(8, 32, 4, num_layers=2)
-    head = SharedGaussianHead(32, 1, [0.0, 0.0, 1.0], -6.9, -1.2, -2.0)
+    head = SharedGaussianHead(
+        32, 1, [0.0, 0.0, 1.0], 1.0e-4, 0.05, -4.0, -2.0, -2.0, 0.0, 1000
+    )
     z = initializer(evidence)
     gaussians = head(z)
     assert z.shape == (2, 8, 32)
@@ -20,8 +22,14 @@ def test_fixed_query_initialization_and_gaussian_readout():
     assert torch.all((gaussians.opacity > 0) & (gaussians.opacity < 1))
 
 
+def _make_gaussian_head():
+    return SharedGaussianHead(
+        32, 0, [0.0, 0.0, 1.0], 1.0e-4, 0.05, -4.0, -2.0, -2.0, 0.0, 1000
+    )
+
+
 def test_c3g_style_xyz_is_anchor_plus_free_residual():
-    head = SharedGaussianHead(32, 0, [0.0, 0.0, 1.0], -6.9, -1.2, -2.0)
+    head = _make_gaussian_head()
     with torch.no_grad():
         head.proj.weight.zero_()
         head.proj.bias.zero_()
@@ -31,6 +39,27 @@ def test_c3g_style_xyz_is_anchor_plus_free_residual():
 
     expected = torch.tensor([5.0, -5.0, 3.0]).expand(1, 2, 3)
     assert torch.allclose(gaussians.xyz, expected)
+
+
+def test_scale_is_bounded_after_renderer_activation():
+    head = _make_gaussian_head()
+    z = torch.randn(2, 8, 32) * 100.0
+
+    scale = head(z).scale.exp()
+
+    assert torch.all(scale >= 1.0e-4)
+    assert torch.all(scale <= 0.05)
+
+
+def test_opacity_mapping_warms_up_to_base_probability():
+    head = _make_gaussian_head()
+    probability = torch.tensor([0.1, 0.5, 0.9])
+
+    initial = head._map_opacity(probability, global_step=0)
+    final = head._map_opacity(probability, global_step=1000)
+
+    assert torch.all(initial <= final)
+    assert torch.allclose(final, probability)
 
 
 def test_dense_split_and_refinement_shapes():
