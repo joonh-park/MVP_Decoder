@@ -1,11 +1,15 @@
 extends: inference.yaml
 
+model:
+  input_image_size: [224, 224]
+  group_size: 2
+
 data:
   root: datasets/re10k
   stage: test
-  image_size: [544, 960]
+  image_size: [224, 224]
   original_image_size: [360, 640]
-  num_context_views: 4
+  num_context_views: 2
   num_target_views: 4
   min_context_gap: 45
   max_context_gap: 90
@@ -27,5 +31,5 @@ inference:
   num_workers: 4
   prefetch_factor: 2
   max_batches: 10
-  out_dir: ./experiments/inference_mvp_re10k
+  out_dir: ./experiments/inference_mvp_re10k_2view_224
   compute_metrics: true
