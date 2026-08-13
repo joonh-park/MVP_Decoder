@@ -134,6 +134,13 @@ python -m training_script.train_3d_token_init \
 python -m training_script.train_3d_token_full \
   --config configs/3d_token/train_full.yaml
 
+# RE10K, two context views, four target views, 224x224
+python -m training_script.train_3d_token_init \
+  --config configs/3d_token/re10k_2view/train_init.yaml
+
+python -m training_script.train_3d_token_full \
+  --config configs/3d_token/re10k_2view/train_full.yaml
+
 # Evaluate a decoder checkpoint
 python -m evaluation_script.eval_3d_token --config configs/3d_token/train_full.yaml
 ```

@@ -1,0 +1,5 @@
+extends: inference.yaml
+
+model:
+  input_image_size: [224, 224]
+  group_size: 2

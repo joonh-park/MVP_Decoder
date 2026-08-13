@@ -1,7 +1,9 @@
-import torch
+import importlib
 
-from data.dataset import Dataset
+import torch
 import torch.distributed as dist
+from torch.utils.data import IterableDataset
+
 
 class DynamicBatchDatasetWrapper:
     def __init__(self, dataset):
@@ -38,8 +40,31 @@ def get_train_data_loader(
     drop_last=True,
     pin_mem=True,
 ):
-    
-    dataset = Dataset(config)
+    dataset_name = config.training.get("dataset_name", "data.dataset.Dataset")
+    module_name, class_name = dataset_name.rsplit(".", 1)
+    dataset_class = importlib.import_module(module_name).__dict__[class_name]
+    dataset = dataset_class(config)
+
+    if isinstance(dataset, IterableDataset):
+        batch_size = config.training.batch_size_per_gpu
+        if isinstance(batch_size, (list, tuple)):
+            if len(batch_size) != 1:
+                raise ValueError(
+                    "Iterable datasets require one batch_size_per_gpu value"
+                )
+            batch_size = batch_size[0]
+        loader_kwargs = {
+            "batch_size": batch_size,
+            "num_workers": num_workers,
+            "pin_memory": pin_mem,
+            "drop_last": drop_last,
+            "persistent_workers": num_workers > 0,
+        }
+        if num_workers > 0:
+            loader_kwargs["prefetch_factor"] = config.training.get(
+                "prefetch_factor", 2
+            )
+        return torch.utils.data.DataLoader(dataset, **loader_kwargs)
     
     world_size = dist.get_world_size() if dist.is_initialized() else 1
     rank = dist.get_rank() if dist.is_initialized() else 0

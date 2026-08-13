@@ -1,0 +1,22 @@
+extends: base.yaml
+
+model:
+  decoder:
+    split:
+      enabled: true
+      dense: true
+    refinement:
+      layers:
+        - type: cross
+          repeat: 2
+        - type: slot
+          repeat: 2
+
+training:
+  stage: full
+  initialization_checkpoint: ./experiments/checkpoints/re10k_2view_init
+  checkpoint_dir: ./experiments/checkpoints/re10k_2view_full
+
+wandb:
+  name: 3D_Token_MVP_RE10K_2View_Full
+  tags: [posed, mvp, 3d-token, re10k, 2-view, 224, full]

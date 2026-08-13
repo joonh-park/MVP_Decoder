@@ -211,44 +211,46 @@ class MVPModel(nn.Module):
         self.register_token_init = nn.Parameter(torch.randn(1, 1, self.num_register_tokens, config.model.dim1))
         nn.init.normal_(self.register_token_init, mean=0.0, std=0.02)
 
-        ### hard-coded Prope attention modules
+        # ProPE has no learned image-size-specific parameters, but its cached
+        # coordinate transforms must match the actual input resolution.
         if not self.inference_mode:
             if config.training.train_stage == 1:
-                self.attention2 = PropeDotProductAttention(
-                head_dim=64, patches_x=30, patches_y=16,
-                image_width=480, image_height=256,
-                num_register_tokens=self.num_register_tokens)
-
-                self.attention3 = PropeDotProductAttention(
-                    head_dim=64, patches_x=15, patches_y=8,
-                    image_width=480, image_height=256,
-                    num_register_tokens=self.num_register_tokens)
-
-            # elif config.training.train_stage in [2, 3]:
+                default_image_size = (256, 480)
             elif config.training.train_stage == 2:
-                self.attention2 = PropeDotProductAttention(
-                    head_dim=64, patches_x=60, patches_y=34,
-                    image_width=960, image_height=544,
-                    num_register_tokens=self.num_register_tokens)
-
-                self.attention3 = PropeDotProductAttention(
-                    head_dim=64, patches_x=30, patches_y=17,
-                    image_width=960, image_height=544,
-                    num_register_tokens=self.num_register_tokens)
-
+                default_image_size = (544, 960)
             else:
                 raise NotImplementedError
+        else:
+            default_image_size = (544, 960)
 
-        elif self.inference_mode:
-            self.attention2 = PropeDotProductAttention(
-                head_dim=64, patches_x=60, patches_y=34,
-                image_width=960, image_height=544,
-                num_register_tokens=self.num_register_tokens)
-
-            self.attention3 = PropeDotProductAttention(
-                head_dim=64, patches_x=30, patches_y=17,
-                image_width=960, image_height=544,
-                num_register_tokens=self.num_register_tokens)
+        self.input_image_size = tuple(
+            config.model.get("input_image_size", default_image_size)
+        )
+        image_height, image_width = self.input_image_size
+        pyramid_factor = self.patch_size * 2
+        if image_height % (self.patch_size * 4) or image_width % (
+            self.patch_size * 4
+        ):
+            raise ValueError(
+                "MVP input_image_size must be divisible by "
+                f"{self.patch_size * 4}, got {self.input_image_size}"
+            )
+        self.attention2 = PropeDotProductAttention(
+            head_dim=config.model.head_dim,
+            patches_x=image_width // pyramid_factor,
+            patches_y=image_height // pyramid_factor,
+            image_width=image_width,
+            image_height=image_height,
+            num_register_tokens=self.num_register_tokens,
+        )
+        self.attention3 = PropeDotProductAttention(
+            head_dim=config.model.head_dim,
+            patches_x=image_width // (pyramid_factor * 2),
+            patches_y=image_height // (pyramid_factor * 2),
+            image_width=image_width,
+            image_height=image_height,
+            num_register_tokens=self.num_register_tokens,
+        )
 
         self.merge_block1 = nn.Conv2d(
             self.dim1, self.dim2, kernel_size=2, stride=2, 
@@ -349,6 +351,10 @@ class MVPModel(nn.Module):
 
         with torch.no_grad():
             b, v, _, h, w = input_data_dict["image"].shape
+            if (h, w) != self.input_image_size:
+                raise ValueError(
+                    f"MVP expected input size {self.input_image_size}, got {(h, w)}"
+                )
             intrinsics = input_data_dict["fxfycxcy"]
             c2w = input_data_dict["c2w"]
             ray_o, ray_d = compute_plucmap(intrinsics, c2w, h, w)
