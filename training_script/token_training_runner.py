@@ -167,6 +167,7 @@ def run_training(required_stage):
     ]
     model.train()
     optimizer.zero_grad(set_to_none=True)
+    logged_step_zero_visualization = update_step > 0
 
     while update_step < config.training.train_steps:
         for raw_batch in data_loader:
@@ -190,6 +191,20 @@ def run_training(required_stage):
                     global_step=update_step,
                 )
                 loss = output.loss_metrics.loss / grad_accumulation
+
+            if (
+                wandb_enabled
+                and update_step == 0
+                and not logged_step_zero_visualization
+            ):
+                _wandb_visualizations(
+                    config,
+                    output,
+                    input_data,
+                    target_data,
+                    update_step=0,
+                )
+                logged_step_zero_visualization = True
 
             scaler.scale(loss).backward()
             step += 1

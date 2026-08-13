@@ -34,11 +34,17 @@ class RE10KDataset(IterableDataset):
         self.max_fov = config.data.get("max_fov", 100.0)
         self.make_baseline_one = config.data.get("make_baseline_one", True)
         self.relative_pose = config.data.get("relative_pose", True)
+        self.pose_normalization = config.data.get("pose_normalization", "re10k")
         self.augment = config.data.get("augment", True)
         self.skip_bad_shape = config.data.get("skip_bad_shape", True)
         self.seed = config.data.get("seed", 42)
-        if self.num_context_views != 2:
-            raise ValueError("This initial RE10K adapter currently supports exactly 2 views")
+        if self.num_context_views < 2:
+            raise ValueError("RE10K requires at least 2 context views")
+        if self.pose_normalization not in {"re10k", "mvp"}:
+            raise ValueError(
+                "pose_normalization must be 're10k' or 'mvp', got "
+                f"{self.pose_normalization!r}"
+            )
 
     @staticmethod
     def _decode_image(encoded):
@@ -65,7 +71,11 @@ class RE10KDataset(IterableDataset):
 
     def _sample_indices(self, num_frames, generator):
         maximum_gap = min(self.max_context_gap, num_frames - 1)
-        minimum_gap = max(2 * self.min_target_distance, self.min_context_gap)
+        minimum_gap = max(
+            2 * self.min_target_distance,
+            self.min_context_gap,
+            self.num_context_views - 1,
+        )
         if maximum_gap < minimum_gap:
             return None
         gap = int(
@@ -80,13 +90,49 @@ class RE10KDataset(IterableDataset):
         right = left + gap
         target_low = left + self.min_target_distance
         target_high = right + 1 - self.min_target_distance
+        if self.num_context_views > 2:
+            interior = torch.randperm(gap - 1, generator=generator)[
+                : self.num_context_views - 2
+            ]
+            context = torch.cat(
+                (
+                    torch.tensor([left]),
+                    interior.add(left + 1),
+                    torch.tensor([right]),
+                )
+            ).sort().values
+        else:
+            context = torch.tensor([left, right])
         targets = torch.randint(
             target_low,
             target_high,
             (self.num_target_views,),
             generator=generator,
         )
-        return torch.tensor([left, right]), targets
+        return context, targets
+
+    @staticmethod
+    def _normalize_poses_for_mvp(c2w, context_indices):
+        """Match the camera normalization used by the original MVP dataset."""
+
+        context_c2w = c2w[context_indices]
+        position_avg = context_c2w[:, :3, 3].mean(dim=0)
+        forward_avg = F.normalize(context_c2w[:, :3, 2].mean(dim=0), dim=0)
+        down_avg = context_c2w[:, :3, 1].mean(dim=0)
+        down_avg = F.normalize(
+            down_avg - down_avg.dot(forward_avg) * forward_avg,
+            dim=0,
+        )
+        right_avg = torch.cross(down_avg, forward_avg, dim=0)
+        average_pose = torch.eye(4, dtype=c2w.dtype, device=c2w.device)
+        average_pose[:3] = torch.stack(
+            (right_avg, down_avg, forward_avg, position_avg),
+            dim=1,
+        )
+        normalized = torch.linalg.inv(average_pose) @ c2w
+        scene_extent = normalized[context_indices, :3, 3].abs().max().clamp_min(1e-8)
+        normalized[:, :3, 3] /= scene_extent
+        return normalized
 
     def _resize_and_crop(self, images, intrinsics):
         output_h, output_w = self.image_size
@@ -132,11 +178,14 @@ class RE10KDataset(IterableDataset):
         baseline = (context_c2w[0, :3, 3] - context_c2w[-1, :3, 3]).norm()
         if not self.baseline_min <= baseline <= self.baseline_max:
             return None
-        if self.make_baseline_one:
-            c2w = c2w.clone()
-            c2w[:, :3, 3] /= baseline
-        if self.relative_pose:
-            c2w = torch.linalg.inv(c2w[context_indices[0]]) @ c2w
+        if self.pose_normalization == "mvp":
+            c2w = self._normalize_poses_for_mvp(c2w, context_indices)
+        else:
+            if self.make_baseline_one:
+                c2w = c2w.clone()
+                c2w[:, :3, 3] /= baseline
+            if self.relative_pose:
+                c2w = torch.linalg.inv(c2w[context_indices[0]]) @ c2w
 
         selected_intrinsics = intrinsics[all_indices]
         images, selected_intrinsics = self._resize_and_crop(

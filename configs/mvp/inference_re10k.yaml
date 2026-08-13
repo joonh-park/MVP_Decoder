@@ -1,0 +1,31 @@
+extends: inference.yaml
+
+data:
+  root: datasets/re10k
+  stage: test
+  image_size: [544, 960]
+  original_image_size: [360, 640]
+  num_context_views: 4
+  num_target_views: 4
+  min_context_gap: 45
+  max_context_gap: 90
+  min_target_distance: 0
+  baseline_min: 1.0e-3
+  baseline_max: 1.0e10
+  max_fov: 100.0
+  pose_normalization: mvp
+  make_baseline_one: false
+  relative_pose: false
+  augment: false
+  skip_bad_shape: true
+  seed: 42
+
+inference:
+  dataset_name: data.re10k_dataset.RE10KDataset
+  ckpt_path: ./mvp.pt
+  batch_size_per_gpu: 1
+  num_workers: 4
+  prefetch_factor: 2
+  max_batches: 10
+  out_dir: ./experiments/inference_mvp_re10k
+  compute_metrics: true

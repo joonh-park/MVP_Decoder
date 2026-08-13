@@ -69,3 +69,46 @@ def test_re10k_chunk_to_mvp_batch(tmp_path):
         - example["input_c2w"][1, :3, 3]
     ).norm()
     assert torch.allclose(baseline, torch.tensor(1.0), atol=1e-5)
+
+
+def test_re10k_four_view_sampling_and_mvp_pose_normalization(tmp_path):
+    train_dir = tmp_path / "train"
+    train_dir.mkdir()
+    cameras = []
+    images = []
+    for index in range(8):
+        w2c = torch.eye(4)
+        w2c[0, 3] = -float(index)
+        cameras.append(
+            torch.cat(
+                (
+                    torch.tensor([0.8, 0.8, 0.5, 0.5, 0.0, 0.0]),
+                    w2c[:3].flatten(),
+                )
+            )
+        )
+        images.append(_encoded_image(index * 20))
+    torch.save(
+        [{"key": "scene", "cameras": torch.stack(cameras), "images": images}],
+        train_dir / "000000.torch",
+    )
+    config = _config(tmp_path)
+    config.data.num_context_views = 4
+    config.data.min_context_gap = 4
+    config.data.max_context_gap = 6
+    config.data.pose_normalization = "mvp"
+
+    example = next(iter(RE10KDataset(config)))
+
+    assert example["input_image"].shape == (4, 3, 224, 224)
+    assert example["input_c2w"].shape == (4, 4, 4)
+    assert torch.allclose(
+        example["input_c2w"][:, :3, 3].mean(dim=0),
+        torch.zeros(3),
+        atol=1e-5,
+    )
+    assert torch.allclose(
+        example["input_c2w"][:, :3, 3].abs().max(),
+        torch.tensor(1.0),
+        atol=1e-5,
+    )

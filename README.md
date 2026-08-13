@@ -97,6 +97,17 @@ Update the entries in `data/dl3dv_benchmark.txt` to point to the correct process
 CUDA_VISIBLE_DEVICES=0 python -m evaluation_script.inference_mvp --config configs/mvp/inference.yaml
 ```
 
+Run the original MVP Gaussian decoder directly on RE10K with four context
+views and MVP camera normalization:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python -m evaluation_script.inference_mvp_re10k \
+    --config configs/mvp/inference_re10k.yaml
+```
+
+Set `data.root`, `inference.ckpt_path`, `inference.out_dir`, and
+`inference.max_batches` in `configs/mvp/inference_re10k.yaml` as needed.
+
 ## Train
 
 Update the `configs/api_keys.yaml` with your own personal wandb api key.
