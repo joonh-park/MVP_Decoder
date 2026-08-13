@@ -5,6 +5,26 @@ from gsplat import rasterization
 from model.token_decoder.types import GaussianParams
 
 
+def scheduled_low_pass_filter(
+    initial,
+    minimum,
+    decrease_factor,
+    decrease_every,
+    global_step,
+):
+    """Match C3G's low-pass schedule without mutating renderer state."""
+
+    value = float(initial)
+    minimum = float(minimum)
+    if decrease_every <= 0 or decrease_factor <= 1.0:
+        return value
+    for _ in range(global_step // decrease_every):
+        value = max(minimum, value / decrease_factor)
+        if value == minimum:
+            break
+    return value
+
+
 class GaussianRenderer(torch.autograd.Function):
     """Chunked differentiable renderer for scalar-opacity 3D tokens."""
 
@@ -24,6 +44,7 @@ class GaussianRenderer(torch.autograd.Function):
         sh_degree,
         near_plane,
         far_plane,
+        low_pass_filter,
     ):
         batch_dims = xyz.shape[:-2]
         num_gaussians = xyz.shape[-2]
@@ -76,6 +97,7 @@ class GaussianRenderer(torch.autograd.Function):
             render_mode="RGB",
             backgrounds=background,
             rasterize_mode="classic",
+            eps2d=low_pass_filter,
         )
         return rendering
 
@@ -94,6 +116,7 @@ class GaussianRenderer(torch.autograd.Function):
         sh_degree,
         near_plane,
         far_plane,
+        low_pass_filter,
     ):
         ctx.save_for_backward(
             xyz, feature, scale, rotation, opacity, test_c2ws, test_intr
@@ -103,6 +126,7 @@ class GaussianRenderer(torch.autograd.Function):
         ctx.sh_degree = sh_degree
         ctx.near_plane = near_plane
         ctx.far_plane = far_plane
+        ctx.low_pass_filter = low_pass_filter
 
         batch, views, _ = test_intr.shape
         renderings = torch.zeros(
@@ -125,6 +149,7 @@ class GaussianRenderer(torch.autograd.Function):
                         sh_degree,
                         near_plane,
                         far_plane,
+                        low_pass_filter,
                     )
         return renderings.requires_grad_()
 
@@ -155,6 +180,7 @@ class GaussianRenderer(torch.autograd.Function):
                         ctx.sh_degree,
                         ctx.near_plane,
                         ctx.far_plane,
+                        ctx.low_pass_filter,
                     )
                     rendering.backward(grad_output[batch_index, view_index:view_end])
 
@@ -164,6 +190,7 @@ class GaussianRenderer(torch.autograd.Function):
             scale.grad,
             rotation.grad,
             opacity.grad,
+            None,
             None,
             None,
             None,
@@ -182,6 +209,7 @@ def render_gaussians(
     sh_degree: int,
     near_plane: float,
     far_plane: float,
+    low_pass_filter: float,
 ) -> torch.Tensor:
     height, width = image_size
     rendering = GaussianRenderer.apply(
@@ -197,5 +225,6 @@ def render_gaussians(
         sh_degree,
         near_plane,
         far_plane,
+        low_pass_filter,
     )
     return rendering.permute(0, 1, 4, 2, 3).contiguous()

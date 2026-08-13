@@ -11,7 +11,11 @@ from model.rendering.error_map import (
     compute_input_error,
     sample_token_error,
 )
-from model.rendering.gaussian_renderer import GaussianRenderer, render_gaussians
+from model.rendering.gaussian_renderer import (
+    GaussianRenderer,
+    render_gaussians,
+    scheduled_low_pass_filter,
+)
 from model.token_decoder.evidence_adapter import EvidenceAdapter
 from model.token_decoder.gaussian_head import SharedGaussianHead
 from model.token_decoder.latent_split import LatentSplitter
@@ -121,7 +125,7 @@ class MVP3DTokenModel(nn.Module):
         self.loss_computer.eval()
         return self
 
-    def _render(self, gaussians, camera_data):
+    def _render(self, gaussians, camera_data, low_pass_filter):
         image = camera_data["image"]
         return render_gaussians(
             gaussians,
@@ -131,9 +135,18 @@ class MVP3DTokenModel(nn.Module):
             sh_degree=self.config.model.gaussians.sh_degree,
             near_plane=self.config.model.gaussians.near_plane,
             far_plane=self.config.model.gaussians.far_plane,
+            low_pass_filter=low_pass_filter,
         )
 
     def forward(self, input_data_dict, target_data_dict=None, global_step=0):
+        gaussian_config = self.config.model.gaussians
+        low_pass_filter = scheduled_low_pass_filter(
+            initial=gaussian_config.get("low_pass_filter", 0.3),
+            minimum=gaussian_config.get("low_pass_filter_min", 0.3),
+            decrease_factor=gaussian_config.get("decrease_lpf_factor", 3.0),
+            decrease_every=gaussian_config.get("decrease_lpf_step", 0),
+            global_step=global_step,
+        )
         frozen = self.backbone(
             input_data_dict["image"],
             input_data_dict["fxfycxcy"],
@@ -145,7 +158,11 @@ class MVP3DTokenModel(nn.Module):
 
         render_initial = None
         if target_data_dict is not None and target_data_dict.get("image") is not None:
-            render_initial = self._render(gaussians_initial, target_data_dict)
+            render_initial = self._render(
+                gaussians_initial,
+                target_data_dict,
+                low_pass_filter,
+            )
 
         z_final = None
         gaussians_final = None
@@ -155,7 +172,11 @@ class MVP3DTokenModel(nn.Module):
         split_target = None
 
         if self.split_enabled or self.refinement_enabled:
-            input_render = self._render(gaussians_initial, input_data_dict)
+            input_render = self._render(
+                gaussians_initial,
+                input_data_dict,
+                low_pass_filter,
+            )
             input_error = compute_input_error(input_render, input_data_dict["image"])
             split_target = sample_token_error(
                 gaussians_initial.xyz,
@@ -183,7 +204,11 @@ class MVP3DTokenModel(nn.Module):
 
             gaussians_final = self.gaussian_head(z_final)
             if target_data_dict is not None and target_data_dict.get("image") is not None:
-                render_final = self._render(gaussians_final, target_data_dict)
+                render_final = self._render(
+                    gaussians_final,
+                    target_data_dict,
+                    low_pass_filter,
+                )
 
         decoder_output = TokenDecoderOutput(
             z_initial=z_initial,
@@ -206,6 +231,7 @@ class MVP3DTokenModel(nn.Module):
             ),
             render=render_final if render_final is not None else render_initial,
             render_initial=render_initial,
+            low_pass_filter=low_pass_filter,
         )
         if render_initial is not None:
             result.loss_metrics = self.loss_computer(

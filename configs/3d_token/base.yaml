@@ -40,6 +40,10 @@ model:
     scale_bias: -6.9
     scale_max: -1.2
     opacity_bias: -2.0
+    low_pass_filter: 10.0
+    low_pass_filter_min: 0.3
+    decrease_lpf_step: 1000
+    decrease_lpf_factor: 3.0
 
 loss:
   mse:
@@ -54,6 +58,11 @@ wandb:
   project: 3D_Token_MVP
   mode: online
   tags: [posed, mvp, 3d-token]
+
+visualization:
+  projection_resolution: 256
+  projection_margin: 0.1
+  projection_fov_degrees: 10.0
 
 data:
   data_path: data/dl3dv_train.txt

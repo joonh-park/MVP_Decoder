@@ -14,6 +14,10 @@ from training_script.training_utils import (
     create_optimizer,
     find_checkpoints,
 )
+from training_script.wandb_visualization import (
+    make_rendering_view,
+    make_xyz_projection_view,
+)
 from utils.runtime import init_config, init_wandb_and_backup
 
 
@@ -35,6 +39,7 @@ def _wandb_metrics(output, update_step, learning_rate, grad_norm, elapsed):
         "train/learning_rate": learning_rate,
         "train/gradient_norm": float(grad_norm),
         "train/iteration_time": elapsed,
+        "train/low_pass_filter": output.low_pass_filter,
         "train/num_initial_tokens": output.decoder_output.z_initial.shape[1],
         "train/num_final_tokens": (
             output.decoder_output.z_final.shape[1]
@@ -50,20 +55,38 @@ def _wandb_metrics(output, update_step, learning_rate, grad_norm, elapsed):
     return metrics
 
 
-def _wandb_comparison(output, target_data, update_step):
-    prediction = output.render[0, 0].detach().float().clamp(0.0, 1.0).cpu()
-    target = target_data["image"][0, 0, :3].detach().float().cpu()
-    error = (prediction - target).abs()
-    comparison = torch.cat((target, prediction, error), dim=-1)
+def _wandb_visualizations(config, output, input_data, target_data, update_step):
+    visualization_config = config.get("visualization", {})
+    rendering_view = make_rendering_view(
+        input_data,
+        target_data,
+        output.render,
+    )
+    xyz_view = make_xyz_projection_view(
+        output.gaussians,
+        sh_degree=config.model.gaussians.sh_degree,
+        near_plane=config.model.gaussians.near_plane,
+        far_plane=config.model.gaussians.far_plane,
+        low_pass_filter=output.low_pass_filter,
+        resolution=visualization_config.get("projection_resolution", 256),
+        margin=visualization_config.get("projection_margin", 0.1),
+        fov_degrees=visualization_config.get("projection_fov_degrees", 10.0),
+    )
     scene_name = target_data.get("scene_name", "")
     if isinstance(scene_name, (list, tuple)):
         scene_name = scene_name[0]
     wandb.log(
         {
-            "train/comparison_gt_prediction_error": wandb.Image(
-                comparison,
-                caption=str(scene_name),
-            )
+            "train/rendering_views": wandb.Image(
+                rendering_view,
+                caption=(
+                    f"{scene_name}; columns: context | target | prediction | error"
+                ),
+            ),
+            "train/xyz_views": wandb.Image(
+                xyz_view,
+                caption=f"{scene_name}; projections: YZ | ZX | XY",
+            ),
         },
         step=update_step,
     )
@@ -201,13 +224,20 @@ def run_training(required_stage):
                 wandb_enabled
                 and update_step % config.training.image_log_every == 0
             ):
-                _wandb_comparison(output, target_data, update_step)
+                _wandb_visualizations(
+                    config,
+                    output,
+                    input_data,
+                    target_data,
+                    update_step,
+                )
 
             if update_step % config.training.print_every == 0:
                 print(
                     f"step={update_step} loss={output.loss_metrics.loss.item():.6f} "
                     f"psnr={output.loss_metrics.get('final_psnr', output.loss_metrics.get('psnr')).item():.3f} "
-                    f"grad_norm={float(grad_norm):.3f} time={elapsed:.2f}s"
+                    f"grad_norm={float(grad_norm):.3f} "
+                    f"low_pass={output.low_pass_filter:.3f} time={elapsed:.2f}s"
                 )
 
             if update_step % config.training.checkpoint_every == 0:
