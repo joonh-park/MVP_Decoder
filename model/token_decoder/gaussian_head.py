@@ -83,8 +83,8 @@ class SharedGaussianHead(nn.Module):
         dim: int,
         sh_degree: int,
         position_range: float,
-        scale_bias: float,
-        scale_max: float,
+        scale_weight: float,
+        clamping: float,
         opacity_bias: float,
         position_mode: str = "free",
         depth_min: float = 0.01,
@@ -107,8 +107,8 @@ class SharedGaussianHead(nn.Module):
             )
         self.sh_degree = sh_degree
         self.position_range = position_range
-        self.scale_bias = scale_bias
-        self.scale_max = scale_max
+        self.scale_weight = scale_weight
+        self.clamping = clamping
         self.opacity_bias = opacity_bias
         self.position_mode = position_mode
         self.depth_min = depth_min
@@ -156,7 +156,11 @@ class SharedGaussianHead(nn.Module):
             xyz = ray_origin + ray_direction * depth
         else:
             xyz = torch.tanh(position) * self.position_range
-        scale = (scale + self.scale_bias).clamp(max=self.scale_max)
+        scale = self.scale_weight * F.softplus(scale)
+        if self.clamping > 0:
+            scale = scale.clamp_max(self.clamping)
+        # GaussianRenderer keeps log-scale as its internal interface.
+        scale = scale.clamp_min(torch.finfo(scale.dtype).tiny).log()
 
         identity = rotation.new_tensor([1.0, 0.0, 0.0, 0.0])
         rotation = F.normalize(rotation + identity, p=2, dim=-1)

@@ -44,8 +44,8 @@ model:
     sh_degree: 1
     near_plane: 0.01
     far_plane: 1000000.0
-    scale_bias: -6.9
-    scale_max: -1.2
+    scale_weight: 0.001
+    clamping: 0.03
     opacity_bias: -2.0
     low_pass_filter: 10.0
     low_pass_filter_min: 0.3

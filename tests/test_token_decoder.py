@@ -10,7 +10,7 @@ from model.token_decoder.token_refiner import TokenRefiner
 def test_fixed_query_initialization_and_gaussian_readout():
     evidence = torch.randn(2, 40, 32)
     initializer = TokenInitializer(8, 32, 4, num_layers=2)
-    head = SharedGaussianHead(32, 1, 4.0, -6.9, -1.2, -2.0)
+    head = SharedGaussianHead(32, 1, 4.0, 0.001, 0.03, -2.0)
     z = initializer(evidence)
     gaussians = head(z)
     assert z.shape == (2, 8, 32)
@@ -25,8 +25,8 @@ def test_gt_ray_gaussian_positions_stay_on_pose_conditioned_ray():
         32,
         1,
         4.0,
-        -6.9,
-        -1.2,
+        0.001,
+        0.03,
         -2.0,
         position_mode="gt_ray",
         depth_min=0.1,
@@ -47,6 +47,18 @@ def test_gt_ray_gaussian_positions_stay_on_pose_conditioned_ray():
     assert torch.allclose(gaussians.xyz[..., 1], torch.full((2, 7), 2.0), atol=1e-6)
     depth = gaussians.xyz[..., 2] - 3.0
     assert torch.all((depth > 0.1) & (depth < 5.0))
+    assert gaussians.scale.exp().max() <= 0.03
+
+
+def test_c3g_scale_parameterization_and_clamping():
+    head = SharedGaussianHead(32, 0, 4.0, 0.001, 0.03, -2.0)
+    z = torch.randn(2, 8, 32)
+
+    gaussians = head(z)
+
+    actual_scale = gaussians.scale.exp()
+    assert torch.all(actual_scale > 0)
+    assert actual_scale.max() <= 0.03
 
 
 def test_dense_split_and_refinement_shapes():
