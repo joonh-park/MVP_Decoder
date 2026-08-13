@@ -13,4 +13,4 @@ training:
 
 wandb:
   name: 3D_Token_MVP_RE10K_2View_Init
-  tags: [posed, mvp, 3d-token, re10k, 2-view, 224, init]
+  tags: [posed, mvp, 3d-token, re10k, 2-view, "224", init]

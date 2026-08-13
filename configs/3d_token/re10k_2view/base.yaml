@@ -33,4 +33,4 @@ training:
   prefetch_factor: 2
 
 wandb:
-  tags: [posed, mvp, 3d-token, re10k, 2-view, 224]
+  tags: [posed, mvp, 3d-token, re10k, 2-view, "224"]

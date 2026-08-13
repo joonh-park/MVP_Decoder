@@ -19,4 +19,4 @@ training:
 
 wandb:
   name: 3D_Token_MVP_RE10K_2View_Full
-  tags: [posed, mvp, 3d-token, re10k, 2-view, 224, full]
+  tags: [posed, mvp, 3d-token, re10k, 2-view, "224", full]
