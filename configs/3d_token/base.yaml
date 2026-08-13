@@ -58,6 +58,9 @@ loss:
   lpips:
     weight: 0.05
     apply_after_step: 0
+  visibility:
+    weight: 1.0
+    clip: 1.0
   initial_render_weight: 1.0
   split_score_weight: 0.1
 

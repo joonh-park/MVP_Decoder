@@ -240,12 +240,32 @@ class MVP3DTokenModel(nn.Module):
             low_pass_filter=low_pass_filter,
         )
         if render_initial is not None:
+            target_image = target_data_dict["image"]
+            target_camera_args = {
+                "c2w": target_data_dict["c2w"],
+                "intrinsics": target_data_dict["fxfycxcy"],
+                "image_size": (target_image.shape[-2], target_image.shape[-1]),
+            }
+            visibility_initial = self.loss_computer.visibility_loss(
+                gaussians_initial.xyz,
+                **target_camera_args,
+            )
+            visibility_final = (
+                self.loss_computer.visibility_loss(
+                    gaussians_final.xyz,
+                    **target_camera_args,
+                )
+                if gaussians_final is not None
+                else None
+            )
             result.loss_metrics = self.loss_computer(
                 render_initial,
                 render_final,
-                target_data_dict["image"],
+                target_image,
                 split_scores=split_scores,
                 split_target=split_target,
+                visibility_initial=visibility_initial,
+                visibility_final=visibility_final,
                 global_step=global_step,
             )
         return result
