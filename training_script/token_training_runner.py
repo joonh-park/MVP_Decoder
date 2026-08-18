@@ -34,13 +34,42 @@ def decoder_state_dict(model):
     }
 
 
-def _wandb_metrics(output, update_step, learning_rate, grad_norm, elapsed):
+def _loss_is_finite(loss):
+    return loss is not None and bool(torch.isfinite(loss.detach().float()).all())
+
+
+def _report_nonfinite_skip(
+    kind,
+    batch,
+    update_step,
+    skip_count,
+):
+    scene_name = batch.get("scene_name", "unknown")
+    if isinstance(scene_name, (list, tuple)):
+        scene_name = scene_name[0]
+    print(
+        f"Skipped non-finite {kind} at update_step={update_step}; "
+        f"scene={scene_name}; total_skips={skip_count}"
+    )
+
+
+def _wandb_metrics(
+    output,
+    update_step,
+    learning_rate,
+    grad_norm,
+    elapsed,
+    nonfinite_loss_skips,
+    nonfinite_gradient_skips,
+):
     metrics = {
         "loss/total": output.loss_metrics.loss.detach().float().item(),
         "info/global_step": update_step,
         "train/learning_rate": learning_rate,
         "train/gradient_norm": float(grad_norm),
         "train/iteration_time": elapsed,
+        "train/skipped_nonfinite_loss": nonfinite_loss_skips,
+        "train/skipped_nonfinite_grad": nonfinite_gradient_skips,
         "train/low_pass_filter": output.low_pass_filter,
         "train/num_initial_tokens": output.decoder_output.z_initial.shape[1],
         "train/num_final_tokens": (
@@ -186,6 +215,9 @@ def run_training(required_stage):
     model.train()
     optimizer.zero_grad(set_to_none=True)
     logged_step_zero_visualization = update_step > 0
+    accumulation_step = 0
+    nonfinite_loss_skips = 0
+    nonfinite_gradient_skips = 0
 
     while update_step < config.training.train_steps:
         for raw_batch in data_loader:
@@ -215,6 +247,16 @@ def run_training(required_stage):
                 )
                 loss = output.loss_metrics.loss / grad_accumulation
 
+            if not _loss_is_finite(output.loss_metrics.loss):
+                nonfinite_loss_skips += 1
+                _report_nonfinite_skip(
+                    "loss",
+                    batch,
+                    update_step,
+                    nonfinite_loss_skips,
+                )
+                continue
+
             if (
                 wandb_enabled
                 and update_step == 0
@@ -231,7 +273,8 @@ def run_training(required_stage):
 
             scaler.scale(loss).backward()
             step += 1
-            should_update = step % grad_accumulation == 0
+            accumulation_step += 1
+            should_update = accumulation_step == grad_accumulation
             if not should_update:
                 continue
 
@@ -240,9 +283,22 @@ def run_training(required_stage):
                 trainable_parameters,
                 gradient_clip_norm,
             )
+            if not bool(torch.isfinite(grad_norm)):
+                nonfinite_gradient_skips += 1
+                optimizer.zero_grad(set_to_none=True)
+                scaler.update()
+                accumulation_step = 0
+                _report_nonfinite_skip(
+                    "gradient",
+                    batch,
+                    update_step,
+                    nonfinite_gradient_skips,
+                )
+                continue
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
+            accumulation_step = 0
             scheduler.step()
             update_step += 1
             step_tracker.set_step(update_step)
@@ -256,6 +312,8 @@ def run_training(required_stage):
                         optimizer.param_groups[0]["lr"],
                         grad_norm,
                         elapsed,
+                        nonfinite_loss_skips,
+                        nonfinite_gradient_skips,
                     ),
                     step=update_step,
                 )

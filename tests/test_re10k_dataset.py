@@ -125,3 +125,35 @@ def test_re10k_validation_reads_test_split(tmp_path):
 
     assert dataset.stage == "val"
     assert dataset.chunk_paths[0].parent.name == "test"
+
+
+def test_re10k_rejects_nonfinite_camera_tensor(tmp_path):
+    train_dir = tmp_path / "train"
+    train_dir.mkdir()
+    (train_dir / "000000.torch").touch()
+    dataset = RE10KDataset(_config(tmp_path))
+    cameras = torch.zeros(6, 18)
+    cameras[0, 0] = torch.nan
+
+    result = dataset._make_example(
+        {"key": "invalid", "cameras": cameras, "images": []},
+        torch.Generator().manual_seed(0),
+    )
+
+    assert result is None
+
+
+def test_re10k_rejects_singular_camera_matrix(tmp_path):
+    train_dir = tmp_path / "train"
+    train_dir.mkdir()
+    (train_dir / "000000.torch").touch()
+    dataset = RE10KDataset(_config(tmp_path))
+    cameras = torch.zeros(6, 18)
+    cameras[:, :4] = torch.tensor([0.8, 0.8, 0.5, 0.5])
+
+    result = dataset._make_example(
+        {"key": "singular", "cameras": cameras, "images": []},
+        torch.Generator().manual_seed(0),
+    )
+
+    assert result is None

@@ -72,6 +72,8 @@ class RE10KDataset(IterableDataset):
         return torch.linalg.inv(w2c), intrinsics
 
     def _fov_is_valid(self, intrinsics):
+        if not torch.isfinite(intrinsics).all():
+            return False
         fx = intrinsics[:, 0, 0].clamp_min(1e-8)
         fy = intrinsics[:, 1, 1].clamp_min(1e-8)
         fov_x = torch.rad2deg(2 * torch.atan(0.5 / fx))
@@ -131,7 +133,18 @@ class RE10KDataset(IterableDataset):
         return images, intrinsics
 
     def _make_example(self, example, generator):
-        c2w, intrinsics = self._convert_cameras(example["cameras"].float())
+        scene_name = example.get("key", "unknown")
+        cameras = example.get("cameras")
+        if (
+            not isinstance(cameras, torch.Tensor)
+            or cameras.ndim != 2
+            or cameras.shape[-1] != 18
+        ):
+            return None
+        try:
+            c2w, intrinsics = self._convert_cameras(cameras.float())
+        except RuntimeError:
+            return None
         if not self._fov_is_valid(intrinsics):
             return None
         sampled = self._sample_indices(c2w.shape[0], generator)
@@ -150,16 +163,22 @@ class RE10KDataset(IterableDataset):
 
         context_c2w = c2w[context_indices]
         baseline = (context_c2w[0, :3, 3] - context_c2w[-1, :3, 3]).norm()
-        if not self.baseline_min <= baseline <= self.baseline_max:
+        if (
+            not torch.isfinite(baseline)
+            or not self.baseline_min <= baseline <= self.baseline_max
+        ):
             return None
-        if self.pose_normalization == "mvp":
-            c2w = self._normalize_poses_for_mvp(c2w, context_indices)
-        else:
-            if self.make_baseline_one:
-                c2w = c2w.clone()
-                c2w[:, :3, 3] /= baseline
-            if self.relative_pose:
-                c2w = torch.linalg.inv(c2w[context_indices[0]]) @ c2w
+        try:
+            if self.pose_normalization == "mvp":
+                c2w = self._normalize_poses_for_mvp(c2w, context_indices)
+            else:
+                if self.make_baseline_one:
+                    c2w = c2w.clone()
+                    c2w[:, :3, 3] /= baseline
+                if self.relative_pose:
+                    c2w = torch.linalg.inv(c2w[context_indices[0]]) @ c2w
+        except RuntimeError:
+            return None
 
         selected_intrinsics = intrinsics[all_indices]
         images, selected_intrinsics = self._resize_and_crop(
@@ -187,6 +206,14 @@ class RE10KDataset(IterableDataset):
             reflection[0, 0] = -1
             selected_c2w = reflection @ selected_c2w @ reflection
 
+        if not (
+            torch.isfinite(images).all()
+            and torch.isfinite(fxfycxcy).all()
+            and torch.isfinite(selected_c2w).all()
+            and bool((fxfycxcy[:, :2] > 0).all())
+        ):
+            return None
+
         context_count = self.num_context_views
         return {
             "input_image": images[:context_count],
@@ -197,7 +224,7 @@ class RE10KDataset(IterableDataset):
             "target_fxfycxcy": fxfycxcy[context_count:],
             "target_c2w": selected_c2w[context_count:],
             "target_indices": target_indices[:, None],
-            "scene_name": example["key"],
+            "scene_name": scene_name,
         }
 
     def __iter__(self):
