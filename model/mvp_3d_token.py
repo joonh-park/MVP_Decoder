@@ -81,6 +81,7 @@ class MVP3DTokenModel(nn.Module):
             sh_degree=gaussian_config.sh_degree,
             position_anchor=decoder_config.get("position_anchor", [0.0, 0.0, 1.0]),
             scale_weight=gaussian_config.scale_weight,
+            scale_max=gaussian_config.get("scale_max"),
             opacity_bias=gaussian_config.opacity_bias,
             opacity_mapping_initial=gaussian_config.opacity_mapping.initial,
             opacity_mapping_final=gaussian_config.opacity_mapping.final,

@@ -37,6 +37,8 @@ def test_3d_token_training_selects_dataset_specific_loader():
     assert re10k.training.dataset_name == "data.re10k_dataset.RE10KDataset"
     assert re10k.training.num_views == [2]
     assert re10k.training.data_loader_seed == 1234
+    assert re10k.training.context_view_loss is True
+    assert re10k.model.gaussians.scale_max == 1.0
     assert re10k.data.initial_min_context_gap == 25
     assert re10k.data.initial_max_context_gap == 25
     assert re10k.data.context_gap_warmup_steps == 37500

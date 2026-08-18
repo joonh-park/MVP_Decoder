@@ -54,6 +54,28 @@ def test_scale_uses_c3g_softplus_mapping():
     assert torch.allclose(scale, expected.expand_as(scale))
 
 
+def test_scale_max_clamps_actual_scale_before_log_storage():
+    head = SharedGaussianHead(
+        32,
+        0,
+        [0.0, 0.0, 1.0],
+        0.001,
+        -2.0,
+        -2.0,
+        0.0,
+        1000,
+        scale_max=1.0,
+    )
+    with torch.no_grad():
+        head.proj.weight.zero_()
+        head.proj.bias.zero_()
+        head.proj.bias[6:9] = 2000.0
+
+    scale = head(torch.randn(1, 2, 32)).scale.exp()
+
+    assert torch.allclose(scale, torch.ones_like(scale))
+
+
 def test_opacity_mapping_warms_up_to_base_probability():
     head = _make_gaussian_head()
     probability = torch.tensor([0.1, 0.5, 0.9])

@@ -18,6 +18,7 @@ class SharedGaussianHead(nn.Module):
         opacity_mapping_initial: float,
         opacity_mapping_final: float,
         opacity_mapping_warm_up: int,
+        scale_max: float | None = None,
     ):
         super().__init__()
         if len(position_anchor) != 3:
@@ -26,6 +27,8 @@ class SharedGaussianHead(nn.Module):
             )
         if scale_weight <= 0.0:
             raise ValueError("scale_weight must be positive")
+        if scale_max is not None and scale_max <= 0.0:
+            raise ValueError("scale_max must be positive when provided")
         if opacity_mapping_warm_up < 0:
             raise ValueError("opacity_mapping_warm_up must be non-negative")
         self.sh_degree = sh_degree
@@ -35,6 +38,7 @@ class SharedGaussianHead(nn.Module):
             persistent=False,
         )
         self.scale_weight = scale_weight
+        self.scale_max = scale_max
         self.opacity_bias = opacity_bias
         self.opacity_mapping_initial = opacity_mapping_initial
         self.opacity_mapping_final = opacity_mapping_final
@@ -68,6 +72,8 @@ class SharedGaussianHead(nn.Module):
         )
         xyz = xyz + self.position_anchor.to(device=xyz.device, dtype=xyz.dtype)
         scale = self.scale_weight * F.softplus(scale)
+        if self.scale_max is not None:
+            scale = scale.clamp_max(self.scale_max)
         scale = scale.log()
 
         identity = rotation.new_tensor([1.0, 0.0, 0.0, 0.0])

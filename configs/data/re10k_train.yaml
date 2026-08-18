@@ -9,3 +9,4 @@ training:
   num_workers: 8
   prefetch_factor: 2
   data_loader_seed: 1234
+  context_view_loss: true

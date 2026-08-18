@@ -6,7 +6,7 @@ import torch
 import wandb
 
 from data import get_train_data_loader, get_val_data_loader
-from data.batch import make_camera_batch
+from data.batch import concatenate_camera_batches, make_camera_batch
 from data.step_tracker import StepTracker
 from training_script.training_utils import (
     auto_resume_job,
@@ -59,10 +59,11 @@ def _wandb_metrics(output, update_step, learning_rate, grad_norm, elapsed):
 
 def _wandb_visualizations(config, output, input_data, target_data, update_step):
     visualization_config = config.get("visualization", {})
+    target_prediction = output.render[:, : target_data["image"].shape[1]]
     rendering_view = make_rendering_view(
         input_data,
         target_data,
-        output.render,
+        target_prediction,
     )
     xyz_view = make_xyz_projection_view(
         output.gaussians,
@@ -196,6 +197,11 @@ def run_training(required_stage):
             }
             input_data = make_camera_batch(batch, "input")
             target_data = make_camera_batch(batch, "target")
+            supervision_data = (
+                concatenate_camera_batches(target_data, input_data)
+                if config.training.get("context_view_loss", False)
+                else target_data
+            )
             with torch.autocast(
                 device_type=device.type,
                 enabled=config.training.use_amp and device.type == "cuda",
@@ -203,7 +209,7 @@ def run_training(required_stage):
             ):
                 output = model(
                     input_data,
-                    target_data,
+                    supervision_data,
                     global_step=update_step,
                 )
                 loss = output.loss_metrics.loss / grad_accumulation
