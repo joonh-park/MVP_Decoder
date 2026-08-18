@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 
 from model.token_decoder.attention import CompetitiveSlotAttention
 from model.token_decoder.gaussian_head import SharedGaussianHead
@@ -11,7 +12,7 @@ def test_fixed_query_initialization_and_gaussian_readout():
     evidence = torch.randn(2, 40, 32)
     initializer = TokenInitializer(8, 32, 4, num_layers=2)
     head = SharedGaussianHead(
-        32, 1, [0.0, 0.0, 1.0], 1.0e-4, 0.2, -4.0, -2.0, -2.0, 0.0, 1000
+        32, 1, [0.0, 0.0, 1.0], 0.001, -2.0, -2.0, 0.0, 1000
     )
     z = initializer(evidence)
     gaussians = head(z)
@@ -24,7 +25,7 @@ def test_fixed_query_initialization_and_gaussian_readout():
 
 def _make_gaussian_head():
     return SharedGaussianHead(
-        32, 0, [0.0, 0.0, 1.0], 1.0e-4, 0.2, -4.0, -2.0, -2.0, 0.0, 1000
+        32, 0, [0.0, 0.0, 1.0], 0.001, -2.0, -2.0, 0.0, 1000
     )
 
 
@@ -41,7 +42,7 @@ def test_c3g_style_xyz_is_anchor_plus_free_residual():
     assert torch.allclose(gaussians.xyz, expected)
 
 
-def test_scale_uses_bounded_sigmoid():
+def test_scale_uses_c3g_softplus_mapping():
     head = _make_gaussian_head()
     with torch.no_grad():
         head.proj.weight.zero_()
@@ -49,16 +50,8 @@ def test_scale_uses_bounded_sigmoid():
 
     scale = head(torch.randn(2, 8, 32)).scale.exp()
 
-    expected = 1.0e-4 + (0.2 - 1.0e-4) * torch.sigmoid(torch.tensor(-4.0))
+    expected = 0.001 * F.softplus(torch.tensor(0.0))
     assert torch.allclose(scale, expected.expand_as(scale))
-
-    with torch.no_grad():
-        scale_start = 3 + head.color_dim
-        head.proj.bias[scale_start : scale_start + 3] = 100.0
-    assert torch.allclose(
-        head(torch.randn(1, 2, 32)).scale.exp(),
-        torch.full((1, 2, 3), 0.2),
-    )
 
 
 def test_opacity_mapping_warms_up_to_base_probability():

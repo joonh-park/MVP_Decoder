@@ -39,9 +39,7 @@ model:
     near_plane: 0.01
     far_plane: 1000000.0
     background_color: [0.0, 0.0, 0.0]
-    scale_min: 1.0e-4
-    scale_max: 0.2
-    scale_bias: -4.0
+    scale_weight: 0.001
     opacity_bias: 0.0
     opacity_mapping:
       initial: 0.0
@@ -59,11 +57,8 @@ loss:
     weight: 0.05
     apply_after_step: 0
   visibility:
-    weight: 0.5
+    weight: 0.25
     clip: 1.0
-  scale_regularization:
-    weight: 1.0
-    threshold: 0.1
   initial_render_weight: 1.0
   split_score_weight: 0.1
 

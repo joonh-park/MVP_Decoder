@@ -80,9 +80,7 @@ class MVP3DTokenModel(nn.Module):
             dim=decoder_config.token_dim,
             sh_degree=gaussian_config.sh_degree,
             position_anchor=decoder_config.get("position_anchor", [0.0, 0.0, 1.0]),
-            scale_min=gaussian_config.scale_min,
-            scale_max=gaussian_config.scale_max,
-            scale_bias=gaussian_config.scale_bias,
+            scale_weight=gaussian_config.scale_weight,
             opacity_bias=gaussian_config.opacity_bias,
             opacity_mapping_initial=gaussian_config.opacity_mapping.initial,
             opacity_mapping_final=gaussian_config.opacity_mapping.final,
@@ -266,12 +264,6 @@ class MVP3DTokenModel(nn.Module):
                 split_target=split_target,
                 visibility_initial=visibility_initial,
                 visibility_final=visibility_final,
-                scale_initial=gaussians_initial.scale.exp(),
-                scale_final=(
-                    gaussians_final.scale.exp()
-                    if gaussians_final is not None
-                    else None
-                ),
                 global_step=global_step,
             )
         return result

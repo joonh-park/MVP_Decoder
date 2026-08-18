@@ -13,9 +13,7 @@ class SharedGaussianHead(nn.Module):
         dim: int,
         sh_degree: int,
         position_anchor: tuple[float, float, float] | list[float],
-        scale_min: float,
-        scale_max: float,
-        scale_bias: float,
+        scale_weight: float,
         opacity_bias: float,
         opacity_mapping_initial: float,
         opacity_mapping_final: float,
@@ -26,11 +24,8 @@ class SharedGaussianHead(nn.Module):
             raise ValueError(
                 f"position_anchor must contain 3 values, got {position_anchor}"
             )
-        if not 0.0 < scale_min < scale_max:
-            raise ValueError(
-                "scale bounds must satisfy 0 < scale_min < scale_max, got "
-                f"{scale_min}, {scale_max}"
-            )
+        if scale_weight <= 0.0:
+            raise ValueError("scale_weight must be positive")
         if opacity_mapping_warm_up < 0:
             raise ValueError("opacity_mapping_warm_up must be non-negative")
         self.sh_degree = sh_degree
@@ -39,9 +34,7 @@ class SharedGaussianHead(nn.Module):
             torch.tensor(position_anchor, dtype=torch.float32),
             persistent=False,
         )
-        self.scale_min = scale_min
-        self.scale_max = scale_max
-        self.scale_bias = scale_bias
+        self.scale_weight = scale_weight
         self.opacity_bias = opacity_bias
         self.opacity_mapping_initial = opacity_mapping_initial
         self.opacity_mapping_final = opacity_mapping_final
@@ -74,9 +67,7 @@ class SharedGaussianHead(nn.Module):
             dim=-1,
         )
         xyz = xyz + self.position_anchor.to(device=xyz.device, dtype=xyz.dtype)
-        scale = self.scale_min + (self.scale_max - self.scale_min) * torch.sigmoid(
-            scale + self.scale_bias
-        )
+        scale = self.scale_weight * F.softplus(scale)
         scale = scale.log()
 
         identity = rotation.new_tensor([1.0, 0.0, 0.0, 0.0])
