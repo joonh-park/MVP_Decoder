@@ -5,8 +5,9 @@ import time
 import torch
 import wandb
 
-from data import get_train_data_loader
+from data import get_train_data_loader, get_val_data_loader
 from data.batch import make_camera_batch
+from data.step_tracker import StepTracker
 from training_script.training_utils import (
     auto_resume_job,
     configure_3d_token_training_stage,
@@ -14,6 +15,7 @@ from training_script.training_utils import (
     create_optimizer,
     find_checkpoints,
 )
+from training_script.token_validation import run_validation
 from training_script.wandb_visualization import (
     make_rendering_view,
     make_xyz_projection_view,
@@ -114,12 +116,21 @@ def run_training(required_stage):
         "tf32": torch.float32,
     }[config.training.amp_dtype]
 
+    step_tracker = StepTracker()
     data_loader = get_train_data_loader(
         config,
         num_workers=config.training.num_workers,
         shuffle=True,
         drop_last=True,
         pin_mem=True,
+        step_tracker=step_tracker,
+    )
+    validation_config = config.get("validation", {})
+    validation_enabled = validation_config.get("enabled", False)
+    val_data_loader = (
+        get_val_data_loader(config, step_tracker=step_tracker, pin_mem=True)
+        if validation_enabled
+        else None
     )
     module_name, class_name = config.model.class_name.rsplit(".", 1)
     model_class = importlib.import_module(module_name).__dict__[class_name]
@@ -161,6 +172,7 @@ def run_training(required_stage):
         scheduler,
         config.training.get("reset_training_state", False),
     )
+    step_tracker.set_step(update_step)
 
     use_scaler = config.training.use_amp and config.training.amp_dtype == "fp16"
     scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
@@ -226,6 +238,7 @@ def run_training(required_stage):
             optimizer.zero_grad(set_to_none=True)
             scheduler.step()
             update_step += 1
+            step_tracker.set_step(update_step)
             elapsed = time.time() - started
 
             if wandb_enabled and update_step % config.training.wandb_log_every == 0:
@@ -257,6 +270,20 @@ def run_training(required_stage):
                     f"psnr={output.loss_metrics.get('final_psnr', output.loss_metrics.get('psnr')).item():.3f} "
                     f"grad_norm={float(grad_norm):.3f} "
                     f"low_pass={output.low_pass_filter:.3f} time={elapsed:.2f}s"
+                )
+
+            if (
+                validation_enabled
+                and update_step % validation_config.every == 0
+            ):
+                run_validation(
+                    model,
+                    next(iter(val_data_loader)),
+                    config,
+                    device,
+                    amp_dtype,
+                    update_step,
+                    wandb_enabled,
                 )
 
             if update_step % config.training.checkpoint_every == 0:

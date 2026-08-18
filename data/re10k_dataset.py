@@ -8,6 +8,8 @@ from PIL import Image
 from torch.utils.data import IterableDataset, get_worker_info
 from torchvision.transforms.functional import pil_to_tensor
 
+from data.view_sampler import BoundedViewSampler
+
 
 class RE10KDataset(IterableDataset):
     """C3G-compatible RE10K chunk reader with MVP camera tensors."""
@@ -17,10 +19,11 @@ class RE10KDataset(IterableDataset):
         self.config = config
         self.root = Path(config.data.root)
         self.stage = config.data.get("stage", "train")
-        self.chunk_paths = sorted((self.root / self.stage).glob("*.torch"))
+        data_stage = "test" if self.stage == "val" else self.stage
+        self.chunk_paths = sorted((self.root / data_stage).glob("*.torch"))
         if not self.chunk_paths:
             raise FileNotFoundError(
-                f"No RE10K .torch chunks found in {self.root / self.stage}"
+                f"No RE10K .torch chunks found in {self.root / data_stage}"
             )
         self.image_size = tuple(config.data.image_size)
         self.original_image_size = tuple(config.data.original_image_size)
@@ -38,6 +41,12 @@ class RE10KDataset(IterableDataset):
         self.augment = config.data.get("augment", True)
         self.skip_bad_shape = config.data.get("skip_bad_shape", True)
         self.seed = config.data.get("seed", 42)
+        self.step_tracker = None
+        self.view_sampler = BoundedViewSampler(
+            config.data,
+            stage=self.stage,
+            step_tracker=self.step_tracker,
+        )
         if self.num_context_views < 2:
             raise ValueError("RE10K requires at least 2 context views")
         if self.pose_normalization not in {"re10k", "mvp"}:
@@ -69,47 +78,12 @@ class RE10KDataset(IterableDataset):
         fov_y = torch.rad2deg(2 * torch.atan(0.5 / fy))
         return bool(torch.maximum(fov_x, fov_y).max() <= self.max_fov)
 
+    def set_step_tracker(self, step_tracker):
+        self.step_tracker = step_tracker
+        self.view_sampler.step_tracker = step_tracker
+
     def _sample_indices(self, num_frames, generator):
-        maximum_gap = min(self.max_context_gap, num_frames - 1)
-        minimum_gap = max(
-            2 * self.min_target_distance,
-            self.min_context_gap,
-            self.num_context_views - 1,
-        )
-        if maximum_gap < minimum_gap:
-            return None
-        gap = int(
-            torch.randint(
-                minimum_gap,
-                maximum_gap + 1,
-                (),
-                generator=generator,
-            )
-        )
-        left = int(torch.randint(0, num_frames - gap, (), generator=generator))
-        right = left + gap
-        target_low = left + self.min_target_distance
-        target_high = right + 1 - self.min_target_distance
-        if self.num_context_views > 2:
-            interior = torch.randperm(gap - 1, generator=generator)[
-                : self.num_context_views - 2
-            ]
-            context = torch.cat(
-                (
-                    torch.tensor([left]),
-                    interior.add(left + 1),
-                    torch.tensor([right]),
-                )
-            ).sort().values
-        else:
-            context = torch.tensor([left, right])
-        targets = torch.randint(
-            target_low,
-            target_high,
-            (self.num_target_views,),
-            generator=generator,
-        )
-        return context, targets
+        return self.view_sampler.sample(num_frames, generator)
 
     @staticmethod
     def _normalize_poses_for_mvp(c2w, context_indices):
@@ -203,7 +177,11 @@ class RE10KDataset(IterableDataset):
         )
 
         selected_c2w = c2w[all_indices]
-        if self.augment and bool(torch.rand((), generator=generator) >= 0.5):
+        if (
+            self.stage == "train"
+            and self.augment
+            and bool(torch.rand((), generator=generator) >= 0.5)
+        ):
             images = images.flip(-1)
             reflection = torch.eye(4)
             reflection[0, 0] = -1

@@ -1,0 +1,9 @@
+validation:
+  enabled: true
+  dataset_name: data.re10k_dataset.RE10KDataset
+  data_stage: val
+  every: 1000
+  batch_size: 1
+  num_workers: 1
+  prefetch_factor: 2
+  seed: 3456

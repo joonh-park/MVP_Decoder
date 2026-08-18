@@ -112,3 +112,16 @@ def test_re10k_four_view_sampling_and_mvp_pose_normalization(tmp_path):
         torch.tensor(1.0),
         atol=1e-5,
     )
+
+
+def test_re10k_validation_reads_test_split(tmp_path):
+    test_dir = tmp_path / "test"
+    test_dir.mkdir()
+    (test_dir / "000000.torch").touch()
+    config = _config(tmp_path)
+    config.data.stage = "val"
+
+    dataset = RE10KDataset(config)
+
+    assert dataset.stage == "val"
+    assert dataset.chunk_paths[0].parent.name == "test"

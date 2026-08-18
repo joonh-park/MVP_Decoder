@@ -7,6 +7,9 @@ data:
   num_target_views: 4
   min_context_gap: 45
   max_context_gap: 90
+  initial_min_context_gap: 25
+  initial_max_context_gap: 25
+  context_gap_warmup_steps: 37500
   min_target_distance: 0
   baseline_min: 1.0e-3
   baseline_max: 1.0e10

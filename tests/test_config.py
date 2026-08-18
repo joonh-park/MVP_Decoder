@@ -36,6 +36,14 @@ def test_3d_token_training_selects_dataset_specific_loader():
     assert dl3dv.training.num_views == [32]
     assert re10k.training.dataset_name == "data.re10k_dataset.RE10KDataset"
     assert re10k.training.num_views == [2]
+    assert re10k.training.data_loader_seed == 1234
+    assert re10k.data.initial_min_context_gap == 25
+    assert re10k.data.initial_max_context_gap == 25
+    assert re10k.data.context_gap_warmup_steps == 37500
+    assert re10k.validation.enabled is True
+    assert re10k.validation.data_stage == "val"
+    assert re10k.validation.every == 1000
+    assert re10k.validation.seed == 3456
 
 
 def test_mvp_re10k_inference_uses_re10k_data_base():
