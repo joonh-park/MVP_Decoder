@@ -83,7 +83,7 @@ training:
   weight_decay: 0.05
   beta1: 0.9
   beta2: 0.95
-  lr: 0.0002
+  lr: 0.0001
   backbone_lr_multiplier: 0.01
   query_lr_multiplier: 0.01
   train_steps: 100000
