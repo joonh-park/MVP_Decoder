@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from training_script.training_utils import (
@@ -71,8 +72,12 @@ def test_full_stage_can_train_unfrozen_backbone():
     assert all(parameter.requires_grad for parameter in model.backbone.parameters())
 
 
-def test_optimizer_applies_backbone_lr_multiplier():
+def test_optimizer_applies_backbone_and_query_lr_multipliers():
     model = _TokenModel()
+    model.initializer.register_parameter(
+        "query_bank",
+        nn.Parameter(torch.zeros(1, 8, 4)),
+    )
     model.backbone.freeze = False
     configure_3d_token_training_stage(model, "init")
 
@@ -82,10 +87,12 @@ def test_optimizer_applies_backbone_lr_multiplier():
         learning_rate=2.0e-4,
         betas=(0.9, 0.95),
         backbone_lr_multiplier=0.01,
+        query_lr_multiplier=0.01,
     )
     group_lrs = {
         group["group_name"]: group["lr"] for group in optimizer.param_groups
     }
 
     assert group_lrs["decoder"] == 2.0e-4
+    assert group_lrs["query_bank"] == 2.0e-6
     assert group_lrs["backbone"] == 2.0e-6

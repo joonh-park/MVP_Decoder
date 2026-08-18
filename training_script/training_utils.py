@@ -81,41 +81,51 @@ def create_optimizer(
     learning_rate,
     betas,
     backbone_lr_multiplier=1.0,
+    query_lr_multiplier=1.0,
 ):
     if backbone_lr_multiplier <= 0:
         raise ValueError("backbone_lr_multiplier must be positive")
+    if query_lr_multiplier <= 0:
+        raise ValueError("query_lr_multiplier must be positive")
     # start with all of the candidate parameters
     all_param_dict = {name: param for name, param in model.named_parameters()}
     # filter out those that do not require grad
     optimized_param_dict = {name: param for name, param in all_param_dict.items() if param.requires_grad}
 
     grouped_params = {
-        (False, True): [],
-        (False, False): [],
-        (True, True): [],
-        (True, False): [],
+        (group_name, use_decay): []
+        for group_name in ("decoder", "query_bank", "backbone")
+        for use_decay in (True, False)
     }
     for name, param in optimized_param_dict.items():
         normalized_name = name.removeprefix("module.")
-        is_backbone = normalized_name.startswith("backbone.")
+        if normalized_name.startswith("backbone."):
+            group_name = "backbone"
+        elif normalized_name == "initializer.query_bank":
+            group_name = "query_bank"
+        else:
+            group_name = "decoder"
         use_decay = not (
             param.dim() == 1 or getattr(param, '_no_weight_decay', False)
         )
-        grouped_params[(is_backbone, use_decay)].append(param)
+        grouped_params[(group_name, use_decay)].append(param)
 
     optim_groups = []
-    for (is_backbone, use_decay), params in grouped_params.items():
+    lr_multipliers = {
+        "decoder": 1.0,
+        "query_bank": query_lr_multiplier,
+        "backbone": backbone_lr_multiplier,
+    }
+    for (group_name, use_decay), params in grouped_params.items():
         if not params:
             continue
-        group_lr = learning_rate * (
-            backbone_lr_multiplier if is_backbone else 1.0
-        )
+        group_lr = learning_rate * lr_multipliers[group_name]
         optim_groups.append(
             {
                 'params': params,
                 'weight_decay': weight_decay if use_decay else 0.0,
                 'lr': group_lr,
-                'group_name': 'backbone' if is_backbone else 'decoder',
+                'group_name': group_name,
             }
         )
     # use fused AdamW optimizer by default. 
@@ -133,6 +143,7 @@ def create_optimizer(
             print(
                 f'Optimizer: AdamW, learning rate: {learning_rate}, '
                 f'backbone multiplier: {backbone_lr_multiplier}, '
+                f'query multiplier: {query_lr_multiplier}, '
                 f'weight decay: {weight_decay}, betas: {betas}'
             )
             # Number of parameters

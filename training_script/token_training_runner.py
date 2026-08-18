@@ -159,6 +159,7 @@ def run_training(required_stage):
         backbone_lr_multiplier=config.training.get(
             "backbone_lr_multiplier", 0.01
         ),
+        query_lr_multiplier=config.training.get("query_lr_multiplier", 0.01),
     )
     scheduler = create_lr_scheduler(
         optimizer,

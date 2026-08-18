@@ -85,6 +85,7 @@ training:
   beta2: 0.95
   lr: 0.0002
   backbone_lr_multiplier: 0.01
+  query_lr_multiplier: 0.01
   train_steps: 100000
   checkpoint_every: 5000
   grad_accum_steps: 1
