@@ -12,17 +12,14 @@ def scheduled_low_pass_filter(
     decrease_every,
     global_step,
 ):
-    """Match C3G's low-pass schedule without mutating renderer state."""
+    """Exponentially decay the renderer low-pass filter without steps."""
 
     value = float(initial)
     minimum = float(minimum)
     if decrease_every <= 0 or decrease_factor <= 1.0:
         return value
-    for _ in range(global_step // decrease_every):
-        value = max(minimum, value / decrease_factor)
-        if value == minimum:
-            break
-    return value
+    progress = max(float(global_step), 0.0) / float(decrease_every)
+    return max(minimum, value * float(decrease_factor) ** (-progress))
 
 
 class GaussianRenderer(torch.autograd.Function):

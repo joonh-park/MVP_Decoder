@@ -7,14 +7,17 @@ from model.rendering.gaussian_renderer import scheduled_low_pass_filter
 from training_script import wandb_visualization
 
 
-def test_c3g_low_pass_schedule():
+def test_smooth_low_pass_schedule():
     kwargs = {
         "initial": 10.0,
         "minimum": 0.3,
         "decrease_factor": 3.0,
         "decrease_every": 1000,
     }
-    assert scheduled_low_pass_filter(global_step=999, **kwargs) == 10.0
+    assert scheduled_low_pass_filter(global_step=0, **kwargs) == 10.0
+    assert scheduled_low_pass_filter(global_step=500, **kwargs) == pytest.approx(
+        10.0 / 3.0**0.5
+    )
     assert scheduled_low_pass_filter(global_step=1000, **kwargs) == pytest.approx(
         10.0 / 3.0
     )
