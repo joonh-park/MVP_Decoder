@@ -72,7 +72,7 @@ def test_full_stage_can_train_unfrozen_backbone():
     assert all(parameter.requires_grad for parameter in model.backbone.parameters())
 
 
-def test_optimizer_applies_backbone_and_query_lr_multipliers():
+def test_optimizer_applies_lr_multipliers():
     model = _TokenModel()
     model.initializer.register_parameter(
         "query_bank",
@@ -88,11 +88,13 @@ def test_optimizer_applies_backbone_and_query_lr_multipliers():
         betas=(0.9, 0.95),
         backbone_lr_multiplier=0.01,
         query_lr_multiplier=0.01,
+        gaussian_head_lr_multiplier=0.1,
     )
     group_lrs = {
         group["group_name"]: group["lr"] for group in optimizer.param_groups
     }
 
     assert group_lrs["decoder"] == 2.0e-4
+    assert group_lrs["gaussian_head"] == 2.0e-5
     assert group_lrs["query_bank"] == 2.0e-6
     assert group_lrs["backbone"] == 2.0e-6

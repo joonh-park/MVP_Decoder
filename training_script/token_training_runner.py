@@ -43,14 +43,199 @@ def _report_nonfinite_skip(
     batch,
     update_step,
     skip_count,
+    extra="",
 ):
     scene_name = batch.get("scene_name", "unknown")
     if isinstance(scene_name, (list, tuple)):
         scene_name = scene_name[0]
+    suffix = f"; {extra}" if extra else ""
     print(
         f"Skipped non-finite {kind} at update_step={update_step}; "
-        f"scene={scene_name}; total_skips={skip_count}"
+        f"scene={scene_name}; total_skips={skip_count}{suffix}"
     )
+
+
+def _param_grad_group(name):
+    name = name.removeprefix("module.")
+    if name == "initializer.query_bank":
+        return "query_bank"
+    if name.startswith("initializer.stack.layers.0."):
+        return "init_cross"
+    if name.startswith("initializer.stack.layers.1."):
+        return "init_slot"
+    if name.startswith("gaussian_head."):
+        return "gaussian_head"
+    if name.startswith("evidence_adapter."):
+        return "adapter"
+    if name.startswith("backbone."):
+        return "backbone"
+    return "other"
+
+
+def _finite_abs_max(tensor, exp=False):
+    value = tensor.detach().float()
+    if exp:
+        value = value.exp()
+    finite = value[torch.isfinite(value)]
+    if finite.numel() == 0:
+        return float("nan")
+    return float(finite.abs().amax().cpu())
+
+
+def _geometry_health(output, camera_data, near_plane):
+    xyz = output.gaussians.xyz.detach().float()
+    xyz_finite = torch.isfinite(xyz)
+    metrics = {
+        "health/xyz_abs_max": _finite_abs_max(xyz),
+        "health/xyz_finite_ratio": float(xyz_finite.float().mean().cpu()),
+    }
+    try:
+        w2c = torch.linalg.inv(camera_data["c2w"].detach().float())
+        camera_xyz = torch.einsum(
+            "bvij,bnj->bvni", w2c[..., :3, :3], xyz
+        ) + w2c[..., :3, 3].unsqueeze(-2)
+        camera_z = camera_xyz[..., 2]
+        finite = torch.isfinite(camera_z)
+        finite_z = camera_z[finite]
+        metrics["health/camera_z_finite_ratio"] = float(
+            finite.float().mean().cpu()
+        )
+        metrics["health/camera_z_abs_min"] = (
+            float(finite_z.abs().amin().cpu())
+            if finite_z.numel() > 0
+            else float("nan")
+        )
+        positive_z = finite_z[finite_z > 0]
+        metrics["health/camera_z_positive_min"] = (
+            float(positive_z.amin().cpu())
+            if positive_z.numel() > 0
+            else float("nan")
+        )
+        metrics["health/behind_camera_ratio"] = (
+            float((finite_z <= 0).float().mean().cpu())
+            if finite_z.numel() > 0
+            else float("nan")
+        )
+        metrics["health/near_plane_violation_ratio"] = (
+            float(
+                ((finite_z > 0) & (finite_z < near_plane))
+                .float()
+                .mean()
+                .cpu()
+            )
+            if finite_z.numel() > 0
+            else float("nan")
+        )
+        metrics["health/renderer_invalid_ratio"] = (
+            float((finite_z < near_plane).float().mean().cpu())
+            if finite_z.numel() > 0
+            else float("nan")
+        )
+    except RuntimeError:
+        metrics.update(
+            {
+                "health/camera_z_finite_ratio": 0.0,
+                "health/camera_z_abs_min": float("nan"),
+                "health/camera_z_positive_min": float("nan"),
+                "health/behind_camera_ratio": float("nan"),
+                "health/near_plane_violation_ratio": float("nan"),
+                "health/renderer_invalid_ratio": float("nan"),
+            }
+        )
+    return metrics
+
+
+def _xyz_grad_metrics(xyz, grad_scale=1.0):
+    grad = xyz.grad
+    if grad is None:
+        return {
+            "grad/xyz_norm": float("nan"),
+            "grad/xyz_abs_max": float("nan"),
+        }
+    grad = grad.detach().float() / float(grad_scale)
+    return {
+        "grad/xyz_norm": float(torch.linalg.vector_norm(grad).cpu()),
+        "grad/xyz_abs_max": _finite_abs_max(grad),
+    }
+
+
+def _module_grad_metrics(model):
+    grouped_norms = {}
+    for name, parameter in model.named_parameters():
+        if parameter.grad is None:
+            continue
+        group = _param_grad_group(name)
+        norm = torch.linalg.vector_norm(parameter.grad.detach().float())
+        grouped_norms.setdefault(group, []).append(norm)
+    metrics = {}
+    for group, norms in grouped_norms.items():
+        metrics[f"grad/{group}"] = float(
+            torch.linalg.vector_norm(torch.stack(norms)).cpu()
+        )
+    return metrics
+
+
+def _head_parameter_metrics(model):
+    head = model.gaussian_head
+    return {
+        "health/head_proj_weight_norm": float(
+            torch.linalg.vector_norm(head.proj.weight.detach().float()).cpu()
+        ),
+        "health/head_proj_weight_abs_max": _finite_abs_max(head.proj.weight),
+        "health/head_proj_bias_abs_max": _finite_abs_max(head.proj.bias),
+        "health/head_norm_weight_abs_max": _finite_abs_max(head.norm.weight),
+        "health/head_norm_bias_abs_max": _finite_abs_max(head.norm.bias),
+    }
+
+
+def _optimizer_lr_metrics(optimizer):
+    return {
+        f"train/learning_rate_{group['group_name']}": group["lr"]
+        for group in optimizer.param_groups
+    }
+
+
+def _optimizer_group_lr(optimizer, group_name):
+    for group in optimizer.param_groups:
+        if group.get("group_name") == group_name:
+            return group["lr"]
+    raise KeyError(f"Optimizer group '{group_name}' was not found")
+
+
+def _nonfinite_grad_debug(model, output, update_step, grad_norm):
+    groups = {
+        "query_bank": False,
+        "init_cross": False,
+        "init_slot": False,
+        "gaussian_head": False,
+        "adapter": False,
+        "backbone": False,
+        "other": False,
+    }
+    names = []
+    for name, parameter in model.named_parameters():
+        if parameter.grad is None or torch.isfinite(parameter.grad).all():
+            continue
+        group = _param_grad_group(name)
+        groups[group] = True
+        if len(names) < 8:
+            names.append(name.removeprefix("module."))
+    gaussians = output.gaussians
+    fired = [group for group, hit in groups.items() if hit]
+    return {
+        "groups": fired,
+        "group_flags": groups,
+        "names": names,
+        "grad_norm": (
+            float(grad_norm)
+            if torch.isfinite(grad_norm)
+            else "nonfinite"
+        ),
+        "xyz_abs_max": _finite_abs_max(gaussians.xyz),
+        "scale_max": _finite_abs_max(gaussians.scale, exp=True),
+        "opacity_max": _finite_abs_max(gaussians.opacity),
+        "update_step": int(update_step),
+    }
 
 
 def _wandb_metrics(
@@ -61,6 +246,9 @@ def _wandb_metrics(
     elapsed,
     nonfinite_loss_skips,
     nonfinite_gradient_skips,
+    optimizer,
+    health_metrics,
+    gradient_metrics,
 ):
     metrics = {
         "loss/total": output.loss_metrics.loss.detach().float().item(),
@@ -83,6 +271,9 @@ def _wandb_metrics(
             continue
         namespace = "train" if "psnr" in name else "loss"
         metrics[f"{namespace}/{name}"] = value.detach().float().item()
+    metrics.update(_optimizer_lr_metrics(optimizer))
+    metrics.update(health_metrics)
+    metrics.update(gradient_metrics)
     return metrics
 
 
@@ -189,6 +380,9 @@ def run_training(required_stage):
             "backbone_lr_multiplier", 0.01
         ),
         query_lr_multiplier=config.training.get("query_lr_multiplier", 0.01),
+        gaussian_head_lr_multiplier=config.training.get(
+            "gaussian_head_lr_multiplier", 1.0
+        ),
     )
     scheduler = create_lr_scheduler(
         optimizer,
@@ -218,6 +412,7 @@ def run_training(required_stage):
     accumulation_step = 0
     nonfinite_loss_skips = 0
     nonfinite_gradient_skips = 0
+    near_plane = float(config.model.gaussians.near_plane)
 
     while update_step < config.training.train_steps:
         for raw_batch in data_loader:
@@ -249,6 +444,19 @@ def run_training(required_stage):
 
             if not _loss_is_finite(output.loss_metrics.loss):
                 nonfinite_loss_skips += 1
+                if wandb_enabled:
+                    wandb.log(
+                        {
+                            "health/nonfinite_loss_event": 1,
+                            "train/skipped_nonfinite_loss": nonfinite_loss_skips,
+                            **_geometry_health(
+                                output,
+                                supervision_data,
+                                near_plane,
+                            ),
+                        },
+                        step=update_step,
+                    )
                 _report_nonfinite_skip(
                     "loss",
                     batch,
@@ -256,6 +464,9 @@ def run_training(required_stage):
                     nonfinite_loss_skips,
                 )
                 continue
+
+            if output.gaussians.xyz.requires_grad:
+                output.gaussians.xyz.retain_grad()
 
             if (
                 wandb_enabled
@@ -279,12 +490,56 @@ def run_training(required_stage):
                 continue
 
             scaler.unscale_(optimizer)
+            xyz_grad_scale = scaler.get_scale() if scaler.is_enabled() else 1.0
+            should_log_update = (
+                wandb_enabled
+                and (update_step + 1) % config.training.wandb_log_every == 0
+            )
+            gradient_metrics = (
+                {
+                    **_xyz_grad_metrics(
+                        output.gaussians.xyz,
+                        grad_scale=xyz_grad_scale,
+                    ),
+                    **_module_grad_metrics(model),
+                }
+                if should_log_update
+                else {}
+            )
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 trainable_parameters,
                 gradient_clip_norm,
             )
             if not bool(torch.isfinite(grad_norm)):
                 nonfinite_gradient_skips += 1
+                debug_payload = _nonfinite_grad_debug(
+                    model, output, update_step, grad_norm
+                )
+                if wandb_enabled:
+                    wandb.log(
+                        {
+                            "health/nonfinite_grad_event": 1,
+                            "train/skipped_nonfinite_grad": (
+                                nonfinite_gradient_skips
+                            ),
+                            **_geometry_health(
+                                output,
+                                supervision_data,
+                                near_plane,
+                            ),
+                            **_xyz_grad_metrics(
+                                output.gaussians.xyz,
+                                grad_scale=xyz_grad_scale,
+                            ),
+                            **{
+                                f"health/nonfinite_grad_{group}": float(hit)
+                                for group, hit in debug_payload[
+                                    "group_flags"
+                                ].items()
+                            },
+                        },
+                        step=update_step,
+                    )
                 optimizer.zero_grad(set_to_none=True)
                 scaler.update()
                 accumulation_step = 0
@@ -293,6 +548,12 @@ def run_training(required_stage):
                     batch,
                     update_step,
                     nonfinite_gradient_skips,
+                    extra=(
+                        f"groups={','.join(debug_payload['groups']) or 'none'}; "
+                        f"names={','.join(debug_payload['names'])}; "
+                        f"xyz_abs_max={debug_payload['xyz_abs_max']}; "
+                        f"scale_max={debug_payload['scale_max']}"
+                    ),
                 )
                 continue
             scaler.step(optimizer)
@@ -305,15 +566,22 @@ def run_training(required_stage):
             elapsed = time.time() - started
 
             if wandb_enabled and update_step % config.training.wandb_log_every == 0:
+                health_metrics = {
+                    **_geometry_health(output, supervision_data, near_plane),
+                    **_head_parameter_metrics(model),
+                }
                 wandb.log(
                     _wandb_metrics(
                         output,
                         update_step,
-                        optimizer.param_groups[0]["lr"],
+                        _optimizer_group_lr(optimizer, "decoder"),
                         grad_norm,
                         elapsed,
                         nonfinite_loss_skips,
                         nonfinite_gradient_skips,
+                        optimizer,
+                        health_metrics,
+                        gradient_metrics,
                     ),
                     step=update_step,
                 )

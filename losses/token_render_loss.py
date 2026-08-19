@@ -55,7 +55,8 @@ class TokenRenderLoss(nn.Module):
         visibility_config = config.loss.get("visibility", {})
         self.visibility_weight = visibility_config.get("weight", 0.0)
         self.visibility_loss = VisibilityLoss(
-            clip=visibility_config.get("clip", 1.0)
+            clip=visibility_config.get("clip", 1.0),
+            epsilon=config.model.gaussians.near_plane,
         )
 
     def forward(

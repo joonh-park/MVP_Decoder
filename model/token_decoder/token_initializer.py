@@ -21,7 +21,7 @@ class TokenInitializer(nn.Module):
     ):
         super().__init__()
         self.query_bank = nn.Parameter(torch.empty(1, num_queries, dim))
-        nn.init.normal_(self.query_bank, mean=0.0, std=0.02)
+        nn.init.normal_(self.query_bank, mean=0.0, std=1)
         if layer_specs is None:
             layer_specs = ["cross"] * num_layers
         self.stack = TokenLayerStack(

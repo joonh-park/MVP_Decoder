@@ -6,6 +6,7 @@ from losses.token_render_loss import TokenRenderLoss
 
 def _config():
     return edict(
+        model=edict(gaussians=edict(near_plane=0.01)),
         loss=edict(
             mse=edict(weight=1.0),
             lpips=edict(weight=0.0, apply_after_step=0),
@@ -18,6 +19,7 @@ def _config():
 
 def test_init_loss_uses_only_initial_render():
     loss_fn = TokenRenderLoss(_config())
+    assert loss_fn.visibility_loss.epsilon == 0.01
     target = torch.ones(1, 2, 3, 4, 4)
     initial = torch.zeros_like(target)
     metrics = loss_fn(
