@@ -86,8 +86,8 @@ def _geometry_health(output, camera_data, near_plane):
     xyz = output.gaussians.xyz.detach().float()
     xyz_finite = torch.isfinite(xyz)
     metrics = {
-        "health/xyz_abs_max": _finite_abs_max(xyz),
-        "health/xyz_finite_ratio": float(xyz_finite.float().mean().cpu()),
+        "debug/xyz_abs_max": _finite_abs_max(xyz),
+        "debug/xyz_finite_ratio": float(xyz_finite.float().mean().cpu()),
     }
     try:
         w2c = torch.linalg.inv(camera_data["c2w"].detach().float())
@@ -97,26 +97,26 @@ def _geometry_health(output, camera_data, near_plane):
         camera_z = camera_xyz[..., 2]
         finite = torch.isfinite(camera_z)
         finite_z = camera_z[finite]
-        metrics["health/camera_z_finite_ratio"] = float(
+        metrics["debug/camera_z_finite_ratio"] = float(
             finite.float().mean().cpu()
         )
-        metrics["health/camera_z_abs_min"] = (
+        metrics["debug/camera_z_abs_min"] = (
             float(finite_z.abs().amin().cpu())
             if finite_z.numel() > 0
             else float("nan")
         )
         positive_z = finite_z[finite_z > 0]
-        metrics["health/camera_z_positive_min"] = (
+        metrics["debug/camera_z_positive_min"] = (
             float(positive_z.amin().cpu())
             if positive_z.numel() > 0
             else float("nan")
         )
-        metrics["health/behind_camera_ratio"] = (
+        metrics["debug/behind_camera_ratio"] = (
             float((finite_z <= 0).float().mean().cpu())
             if finite_z.numel() > 0
             else float("nan")
         )
-        metrics["health/near_plane_violation_ratio"] = (
+        metrics["debug/near_plane_violation_ratio"] = (
             float(
                 ((finite_z > 0) & (finite_z < near_plane))
                 .float()
@@ -126,7 +126,7 @@ def _geometry_health(output, camera_data, near_plane):
             if finite_z.numel() > 0
             else float("nan")
         )
-        metrics["health/renderer_invalid_ratio"] = (
+        metrics["debug/renderer_invalid_ratio"] = (
             float((finite_z < near_plane).float().mean().cpu())
             if finite_z.numel() > 0
             else float("nan")
@@ -134,12 +134,12 @@ def _geometry_health(output, camera_data, near_plane):
     except RuntimeError:
         metrics.update(
             {
-                "health/camera_z_finite_ratio": 0.0,
-                "health/camera_z_abs_min": float("nan"),
-                "health/camera_z_positive_min": float("nan"),
-                "health/behind_camera_ratio": float("nan"),
-                "health/near_plane_violation_ratio": float("nan"),
-                "health/renderer_invalid_ratio": float("nan"),
+                "debug/camera_z_finite_ratio": 0.0,
+                "debug/camera_z_abs_min": float("nan"),
+                "debug/camera_z_positive_min": float("nan"),
+                "debug/behind_camera_ratio": float("nan"),
+                "debug/near_plane_violation_ratio": float("nan"),
+                "debug/renderer_invalid_ratio": float("nan"),
             }
         )
     return metrics
@@ -149,13 +149,13 @@ def _xyz_grad_metrics(xyz, grad_scale=1.0):
     grad = xyz.grad
     if grad is None:
         return {
-            "grad/xyz_norm": float("nan"),
-            "grad/xyz_abs_max": float("nan"),
+            "debug/grad_xyz_norm": float("nan"),
+            "debug/grad_xyz_abs_max": float("nan"),
         }
     grad = grad.detach().float() / float(grad_scale)
     return {
-        "grad/xyz_norm": float(torch.linalg.vector_norm(grad).cpu()),
-        "grad/xyz_abs_max": _finite_abs_max(grad),
+        "debug/grad_xyz_norm": float(torch.linalg.vector_norm(grad).cpu()),
+        "debug/grad_xyz_abs_max": _finite_abs_max(grad),
     }
 
 
@@ -169,7 +169,7 @@ def _module_grad_metrics(model):
         grouped_norms.setdefault(group, []).append(norm)
     metrics = {}
     for group, norms in grouped_norms.items():
-        metrics[f"grad/{group}"] = float(
+        metrics[f"debug/grad_{group}"] = float(
             torch.linalg.vector_norm(torch.stack(norms)).cpu()
         )
     return metrics
@@ -178,19 +178,19 @@ def _module_grad_metrics(model):
 def _head_parameter_metrics(model):
     head = model.gaussian_head
     return {
-        "health/head_proj_weight_norm": float(
+        "debug/head_proj_weight_norm": float(
             torch.linalg.vector_norm(head.proj.weight.detach().float()).cpu()
         ),
-        "health/head_proj_weight_abs_max": _finite_abs_max(head.proj.weight),
-        "health/head_proj_bias_abs_max": _finite_abs_max(head.proj.bias),
-        "health/head_norm_weight_abs_max": _finite_abs_max(head.norm.weight),
-        "health/head_norm_bias_abs_max": _finite_abs_max(head.norm.bias),
+        "debug/head_proj_weight_abs_max": _finite_abs_max(head.proj.weight),
+        "debug/head_proj_bias_abs_max": _finite_abs_max(head.proj.bias),
+        "debug/head_norm_weight_abs_max": _finite_abs_max(head.norm.weight),
+        "debug/head_norm_bias_abs_max": _finite_abs_max(head.norm.bias),
     }
 
 
 def _optimizer_lr_metrics(optimizer):
     return {
-        f"train/learning_rate_{group['group_name']}": group["lr"]
+        f"debug/learning_rate_{group['group_name']}": group["lr"]
         for group in optimizer.param_groups
     }
 
@@ -247,20 +247,20 @@ def _wandb_metrics(
     nonfinite_loss_skips,
     nonfinite_gradient_skips,
     optimizer,
-    health_metrics,
+    debug_metrics,
     gradient_metrics,
 ):
     metrics = {
         "loss/total": output.loss_metrics.loss.detach().float().item(),
         "info/global_step": update_step,
-        "train/learning_rate": learning_rate,
-        "train/gradient_norm": float(grad_norm),
-        "train/iteration_time": elapsed,
-        "train/skipped_nonfinite_loss": nonfinite_loss_skips,
-        "train/skipped_nonfinite_grad": nonfinite_gradient_skips,
-        "train/low_pass_filter": output.low_pass_filter,
-        "train/num_initial_tokens": output.decoder_output.z_initial.shape[1],
-        "train/num_final_tokens": (
+        "debug/learning_rate": learning_rate,
+        "debug/gradient_norm": float(grad_norm),
+        "debug/iteration_time": elapsed,
+        "debug/skipped_nonfinite_loss": nonfinite_loss_skips,
+        "debug/skipped_nonfinite_grad": nonfinite_gradient_skips,
+        "debug/low_pass_filter": output.low_pass_filter,
+        "debug/num_initial_tokens": output.decoder_output.z_initial.shape[1],
+        "debug/num_final_tokens": (
             output.decoder_output.z_final.shape[1]
             if output.decoder_output.z_final is not None
             else output.decoder_output.z_initial.shape[1]
@@ -272,7 +272,7 @@ def _wandb_metrics(
         namespace = "train" if "psnr" in name else "loss"
         metrics[f"{namespace}/{name}"] = value.detach().float().item()
     metrics.update(_optimizer_lr_metrics(optimizer))
-    metrics.update(health_metrics)
+    metrics.update(debug_metrics)
     metrics.update(gradient_metrics)
     return metrics
 
@@ -301,13 +301,13 @@ def _wandb_visualizations(config, output, input_data, target_data, update_step):
         scene_name = scene_name[0]
     wandb.log(
         {
-            "train/rendering_views": wandb.Image(
+            "visualization/rendering_views": wandb.Image(
                 rendering_view,
                 caption=(
                     f"{scene_name}; columns: context | target | prediction | error"
                 ),
             ),
-            "train/xyz_views": wandb.Image(
+            "visualization/xyz_views": wandb.Image(
                 xyz_view,
                 caption=f"{scene_name}; projections: YZ | ZX | XY",
             ),
@@ -447,8 +447,8 @@ def run_training(required_stage):
                 if wandb_enabled:
                     wandb.log(
                         {
-                            "health/nonfinite_loss_event": 1,
-                            "train/skipped_nonfinite_loss": nonfinite_loss_skips,
+                            "debug/nonfinite_loss_event": 1,
+                            "debug/skipped_nonfinite_loss": nonfinite_loss_skips,
                             **_geometry_health(
                                 output,
                                 supervision_data,
@@ -518,8 +518,8 @@ def run_training(required_stage):
                 if wandb_enabled:
                     wandb.log(
                         {
-                            "health/nonfinite_grad_event": 1,
-                            "train/skipped_nonfinite_grad": (
+                            "debug/nonfinite_grad_event": 1,
+                            "debug/skipped_nonfinite_grad": (
                                 nonfinite_gradient_skips
                             ),
                             **_geometry_health(
@@ -532,7 +532,7 @@ def run_training(required_stage):
                                 grad_scale=xyz_grad_scale,
                             ),
                             **{
-                                f"health/nonfinite_grad_{group}": float(hit)
+                                f"debug/nonfinite_grad_{group}": float(hit)
                                 for group, hit in debug_payload[
                                     "group_flags"
                                 ].items()
@@ -566,7 +566,7 @@ def run_training(required_stage):
             elapsed = time.time() - started
 
             if wandb_enabled and update_step % config.training.wandb_log_every == 0:
-                health_metrics = {
+                debug_metrics = {
                     **_geometry_health(output, supervision_data, near_plane),
                     **_head_parameter_metrics(model),
                 }
@@ -580,7 +580,7 @@ def run_training(required_stage):
                         nonfinite_loss_skips,
                         nonfinite_gradient_skips,
                         optimizer,
-                        health_metrics,
+                        debug_metrics,
                         gradient_metrics,
                     ),
                     step=update_step,
