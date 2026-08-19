@@ -383,6 +383,9 @@ def run_training(required_stage):
         gaussian_head_lr_multiplier=config.training.get(
             "gaussian_head_lr_multiplier", 1.0
         ),
+        gaussian_head_weight_decay=config.training.get(
+            "gaussian_head_weight_decay", config.training.weight_decay
+        ),
     )
     scheduler = create_lr_scheduler(
         optimizer,

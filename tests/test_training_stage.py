@@ -89,6 +89,7 @@ def test_optimizer_applies_lr_multipliers():
         backbone_lr_multiplier=0.01,
         query_lr_multiplier=0.01,
         gaussian_head_lr_multiplier=0.1,
+        gaussian_head_weight_decay=1.0,
     )
     group_lrs = {
         group["group_name"]: group["lr"] for group in optimizer.param_groups
@@ -98,3 +99,15 @@ def test_optimizer_applies_lr_multipliers():
     assert group_lrs["gaussian_head"] == 2.0e-5
     assert group_lrs["query_bank"] == 2.0e-6
     assert group_lrs["backbone"] == 2.0e-6
+    head_weight_group = next(
+        group
+        for group in optimizer.param_groups
+        if any(parameter is model.gaussian_head.weight for parameter in group["params"])
+    )
+    head_bias_group = next(
+        group
+        for group in optimizer.param_groups
+        if any(parameter is model.gaussian_head.bias for parameter in group["params"])
+    )
+    assert head_weight_group["weight_decay"] == 1.0
+    assert head_bias_group["weight_decay"] == 0.0

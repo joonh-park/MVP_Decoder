@@ -86,8 +86,9 @@ training:
   lr: 0.0001
   backbone_lr_multiplier: 0.01
   query_lr_multiplier: 0.01
-  gaussian_head_lr_multiplier: 0.1
-  train_steps: 100000
+  gaussian_head_lr_multiplier: 1.0
+  gaussian_head_weight_decay: 1.0
+  train_steps: 300000
   checkpoint_every: 5000
   grad_accum_steps: 1
   gradient_clip_norm: 0.5

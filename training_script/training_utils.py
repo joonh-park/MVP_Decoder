@@ -83,6 +83,7 @@ def create_optimizer(
     backbone_lr_multiplier=1.0,
     query_lr_multiplier=1.0,
     gaussian_head_lr_multiplier=1.0,
+    gaussian_head_weight_decay=None,
 ):
     if backbone_lr_multiplier <= 0:
         raise ValueError("backbone_lr_multiplier must be positive")
@@ -90,6 +91,10 @@ def create_optimizer(
         raise ValueError("query_lr_multiplier must be positive")
     if gaussian_head_lr_multiplier <= 0:
         raise ValueError("gaussian_head_lr_multiplier must be positive")
+    if gaussian_head_weight_decay is None:
+        gaussian_head_weight_decay = weight_decay
+    if gaussian_head_weight_decay < 0:
+        raise ValueError("gaussian_head_weight_decay must be non-negative")
     # start with all of the candidate parameters
     all_param_dict = {name: param for name, param in model.named_parameters()}
     # filter out those that do not require grad
@@ -126,10 +131,15 @@ def create_optimizer(
         if not params:
             continue
         group_lr = learning_rate * lr_multipliers[group_name]
+        group_weight_decay = (
+            gaussian_head_weight_decay
+            if group_name == "gaussian_head"
+            else weight_decay
+        )
         optim_groups.append(
             {
                 'params': params,
-                'weight_decay': weight_decay if use_decay else 0.0,
+                'weight_decay': group_weight_decay if use_decay else 0.0,
                 'lr': group_lr,
                 'group_name': group_name,
             }
@@ -151,6 +161,7 @@ def create_optimizer(
                 f'backbone multiplier: {backbone_lr_multiplier}, '
                 f'query multiplier: {query_lr_multiplier}, '
                 f'gaussian head multiplier: {gaussian_head_lr_multiplier}, '
+                f'gaussian head weight decay: {gaussian_head_weight_decay}, '
                 f'weight decay: {weight_decay}, betas: {betas}'
             )
             # Number of parameters
