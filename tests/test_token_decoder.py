@@ -1,7 +1,10 @@
 import torch
 import torch.nn.functional as F
 
-from model.token_decoder.attention import CompetitiveSlotAttention
+from model.token_decoder.attention import (
+    CompetitiveSlotAttention,
+    SelfCrossAttention,
+)
 from model.token_decoder.gaussian_head import SharedGaussianHead
 from model.token_decoder.latent_split import LatentSplitter
 from model.token_decoder.token_initializer import TokenInitializer
@@ -99,21 +102,33 @@ def test_dense_split_and_refinement_shapes():
     assert refined.shape == (2, 16, 32)
 
 
-def test_configurable_cross_slot_initialization():
+def test_configurable_self_cross_slot_initialization():
     evidence = torch.randn(2, 40, 32)
     initializer = TokenInitializer(
         8,
         32,
         4,
-        layer_specs=[{"type": "cross"}, {"type": "slot", "repeat": 2}],
+        layer_specs=[{"type": "self_cross"}, {"type": "slot", "repeat": 2}],
         query_chunk_size=3,
         evidence_chunk_size=7,
     )
     output = initializer(evidence)
     layer_types = [layer.attention_type for layer in initializer.stack.layers]
     assert output.shape == (2, 8, 32)
-    assert layer_types == ["cross", "slot", "slot"]
+    assert layer_types == ["self_cross", "slot", "slot"]
     assert torch.isfinite(output).all()
+
+
+def test_self_cross_attention_query_chunking_is_exact():
+    query = torch.randn(2, 7, 32)
+    evidence = torch.randn(2, 19, 32)
+    full = SelfCrossAttention(32, 4, query_chunk_size=0).eval()
+    chunked = SelfCrossAttention(32, 4, query_chunk_size=3).eval()
+    chunked.load_state_dict(full.state_dict())
+    with torch.no_grad():
+        expected = full(query, evidence)
+        actual = chunked(query, evidence)
+    assert torch.allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
 def test_slot_attention_evidence_chunking_is_exact():

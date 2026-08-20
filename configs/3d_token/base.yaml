@@ -23,7 +23,7 @@ model:
     initializer:
       num_queries: 2048
       layers:
-        - type: cross
+        - type: self_cross
         - type: slot
 
     split:

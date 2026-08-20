@@ -56,6 +56,59 @@ class CrossAttention(nn.Module):
         return self.out_proj(output)
 
 
+class SelfCrossAttention(nn.Module):
+    """Update queries from joint query/evidence KV with separate projections."""
+
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        dropout: float = 0.0,
+        query_chunk_size: int = 0,
+        bias: bool = False,
+    ):
+        super().__init__()
+        if dim % num_heads != 0:
+            raise ValueError(f"dim={dim} must be divisible by num_heads={num_heads}")
+        self.num_heads = num_heads
+        self.dropout = dropout
+        self.query_chunk_size = query_chunk_size
+        self.q_proj = nn.Linear(dim, dim, bias=bias)
+        self.query_k_proj = nn.Linear(dim, dim, bias=bias)
+        self.query_v_proj = nn.Linear(dim, dim, bias=bias)
+        self.evidence_k_proj = nn.Linear(dim, dim, bias=bias)
+        self.evidence_v_proj = nn.Linear(dim, dim, bias=bias)
+        self.out_proj = nn.Linear(dim, dim, bias=bias)
+
+    def _attend(self, q, k, v):
+        return F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            dropout_p=self.dropout if self.training else 0.0,
+        )
+
+    def forward(self, query: torch.Tensor, evidence: torch.Tensor) -> torch.Tensor:
+        q = _split_heads(self.q_proj(query), self.num_heads)
+        query_k = _split_heads(self.query_k_proj(query), self.num_heads)
+        query_v = _split_heads(self.query_v_proj(query), self.num_heads)
+        evidence_k = _split_heads(self.evidence_k_proj(evidence), self.num_heads)
+        evidence_v = _split_heads(self.evidence_v_proj(evidence), self.num_heads)
+        k = torch.cat((query_k, evidence_k), dim=-2)
+        v = torch.cat((query_v, evidence_v), dim=-2)
+
+        chunk_size = self.query_chunk_size
+        if chunk_size > 0 and q.shape[-2] > chunk_size:
+            output = torch.cat(
+                [self._attend(chunk, k, v) for chunk in q.split(chunk_size, dim=-2)],
+                dim=-2,
+            )
+        else:
+            output = self._attend(q, k, v)
+        output = output.transpose(1, 2).contiguous().flatten(2)
+        return self.out_proj(output)
+
+
 class CompetitiveSlotAttention(nn.Module):
     """Cross-attention where each evidence token competitively selects a slot.
 
@@ -165,6 +218,13 @@ class CrossAttentionBlock(nn.Module):
                 dropout=dropout,
                 query_chunk_size=query_chunk_size,
             )
+        elif attention_type == "self_cross":
+            self.cross_attn = SelfCrossAttention(
+                dim,
+                num_heads,
+                dropout=dropout,
+                query_chunk_size=query_chunk_size,
+            )
         elif attention_type == "slot":
             self.cross_attn = CompetitiveSlotAttention(
                 dim,
@@ -176,7 +236,8 @@ class CrossAttentionBlock(nn.Module):
             )
         else:
             raise ValueError(
-                f"Unknown attention type '{attention_type}'; expected 'cross' or 'slot'"
+                f"Unknown attention type '{attention_type}'; expected "
+                "'cross', 'self_cross', or 'slot'"
             )
         self.ffn_norm = nn.LayerNorm(dim)
         self.ffn = FeedForward(dim, mlp_ratio, dropout)
@@ -199,7 +260,7 @@ def build_attention_layers(
     slot_epsilon: float,
     slot_null: bool,
 ) -> nn.ModuleList:
-    """Build an ordered cross/slot stack from compact config specifications."""
+    """Build an ordered attention stack from compact config specifications."""
 
     layers = []
     for raw_spec in layer_specs:
